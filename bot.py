@@ -53,21 +53,19 @@ def save_user_memory(user_id, state):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO memory (user_id, summary, history, token_accum, last_response_id, thread_count)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET
-            summary = EXCLUDED.summary,
-            history = EXCLUDED.history,
-            token_accum = EXCLUDED.token_accum,
-            last_response_id = EXCLUDED.last_response_id,
-            thread_count = EXCLUDED.thread_count
+    INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (user_id) DO UPDATE SET
+        summary = EXCLUDED.summary,
+        token_accum = EXCLUDED.token_accum,
+        last_response_id = EXCLUDED.last_response_id,
+        thread_count = EXCLUDED.thread_count
     """, (
-        user_id,
-        state["summary"],
-        Json(state["history"]),
-        state["token_accum"],
-        state["last_response_id"],
-        state["thread_count"]
+    user_id,
+    state["summary"],
+    state["token_accum"],
+    state["last_response_id"],
+    state["thread_count"]
     ))
     conn.commit()
     db_pool.putconn(conn)

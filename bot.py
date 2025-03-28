@@ -49,7 +49,7 @@ async def on_message(message):
             thinking_message = await message.channel.send("🧠 Thinking...")
             try:
                 response = client_ai.chat.completions.create(
-                    model="gpt-4o-mini",  # 或改成 "gpt-4"
+                    model="o3-mini",  # 或改成 "gpt-4"
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}

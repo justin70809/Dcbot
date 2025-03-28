@@ -153,7 +153,7 @@ async def on_message(message):
                             "content": query
                         }
                     ],
-                   "max_tokens": 300,
+                   "max_tokens": 1000,
                    "temperature": 1.2,
                    "top_p": 0.9,
                    #"search_domain_filter": ["web", "youtube","news"],

@@ -17,8 +17,6 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-cursor = conn.cursor()
 
 def load_user_memory(user_id):
     conn = get_db_connection()
@@ -27,7 +25,11 @@ def load_user_memory(user_id):
     row = cursor.fetchone()
     conn.close()
     if row:
-        return {"summary": row[0], "history": row[1], "token_accum": row[2]}
+        return {
+            "summary": row["summary"],
+            "history": row["history"],
+            "token_accum": row["token_accum"]
+        }
     else:
         return {"summary": "", "history": [], "token_accum": 0}
 

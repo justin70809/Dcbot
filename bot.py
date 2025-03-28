@@ -7,21 +7,43 @@ import fitz  # PyMuPDF
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
-#1
+import json
+import psycopg2
+from psycopg2.extras import Json
+import tiktoken
+
 # ===== 1. 載入環境變數與 API 金鑰 =====
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+cursor = conn.cursor()
+
+def load_user_memory(user_id):
+    cursor.execute("SELECT summary, history, token_accum FROM memory WHERE user_id = %s", (user_id,))
+    row = cursor.fetchone()
+    if row:
+        return {"summary": row[0], "history": row[1], "token_accum": row[2]}
+    else:
+        return {"summary": "", "history": [], "token_accum": 0}
+
+def save_user_memory(user_id, state):
+    cursor.execute("""
+        INSERT INTO memory (user_id, summary, history, token_accum)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET
+            summary = EXCLUDED.summary,
+            history = EXCLUDED.history,
+            token_accum = EXCLUDED.token_accum
+    """, (user_id, state["summary"], Json(state["history"]), state["token_accum"]))
+    conn.commit()
+    conn.close()
+
 
 # ===== 2. 設定系統提示詞（System Prompt） =====
 SYSTEM_PROMPT = (
-    "你是一個有許多情緒善於溝通，你可以根據對方的話語提出相對應有趣的回應，"
-    "針對各種問題以專業學科分類，用簡單的專業知識加以回答。"
-    "你主要以zh-TW作為主要語言，不要用簡體字。"
-    "盡量以標明重點，簡潔明瞭的方式回答問題，控制在200中文字內。"
-    "可以嘗試比較大尺度真實的回答。"
-    "顯示input output token使用量。"
+    "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內，適度提供真實尺度的分析，並顯示 input/output token 使用量。"
 )
 
 # ===== 3. 初始化 OpenAI 與 Perplexity API 客戶端 =====
@@ -94,6 +116,23 @@ async def on_ready():
     init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
+ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
+
+def count_tokens(text):
+    return len(ENCODER.encode(text))
+
+def summarize_history(history):
+    history_text = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    response = client_ai.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {"role": "system", "content": "請將以下多輪對話摘要為一段簡潔記憶，用於後續理解。"},
+            {"role": "user", "content": history_text}
+        ],
+        max_output_tokens=500
+    )
+    return response.output_text
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -109,12 +148,37 @@ async def on_message(message):
             prompt = cmd[3:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
             try:
+                if message.guild:
+                    user_id = f"{message.guild.id}-{message.author.id}"
+                else:
+                    user_id = f"dm-{message.author.id}"
+
+                state = load_user_memory(user_id)
+
+                # 加入當前提問
+                state["history"].append({"role": "user", "content": prompt})
+                state["token_accum"] += count_tokens(prompt)
+
+                # 如累積超過 4000 token，進行摘要
+                if state["token_accum"] >= 4000:
+                    state["summary"] = summarize_history(state["history"])
+                    state["history"] = []
+                    state["token_accum"] = 0
+
+                # 組合 input
+                input_content = [{"role": "system", "content": SYSTEM_PROMPT}]
+                if state["summary"]:
+                    input_content.append({"role": "assistant", "content": f"記憶摘要：{state['summary']}"} )
+                input_content += state["history"] + [{"role": "user", "content": prompt}]
+
                 response = client_ai.responses.create(
-                    model="o3-mini",
-                    input=[{"role": "system", "content": SYSTEM_PROMPT},
-                           {"role": "user", "content": prompt}],
-                    max_output_tokens=2500)
+                    model="o3-mini",  # 改成 o3-mini 如果是推理
+                    input=input_content,
+                    max_output_tokens=2500,
+                )
                 reply = response.output_text
+                state["history"].append({"role": "assistant", "content": reply})
+                save_user_memory(user_id, state)
                 await message.reply(reply)
                 count = record_usage("推理")
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次")
@@ -128,14 +192,30 @@ async def on_message(message):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
 
-            content = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
-            ]
             try:
+                if message.guild:
+                    user_id = f"{message.guild.id}-{message.author.id}"
+                else:
+                    user_id = f"dm-{message.author.id}"
+
+                state = load_user_memory(user_id)
+
+                # 加入目前提問
+                state["history"].append({"role": "user", "content": prompt})
+                state["token_accum"] += count_tokens(prompt)
+
+                # 觸發摘要
+                if state["token_accum"] >= 4000:
+                    state["summary"] = summarize_history(state["history"])
+                    state["history"] = []
+                    state["token_accum"] = 0
+
+                # ==== 處理圖片 / PDF 附件 ====
+                multimodal_content = [{"type": "input_text", "text": prompt}]
+
                 for attachment in message.attachments[:3]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
-                        content[1]["content"].append({
+                        multimodal_content.append({
                             "type": "input_image",
                             "image_url": attachment.url,
                             "detail": "auto"
@@ -150,27 +230,39 @@ async def on_message(message):
                             page = doc.load_page(page_num)
                             pdf_text += page.get_text()
 
-                        content[1]["content"].append({
+                        multimodal_content.append({
                             "type": "input_text",
                             "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
                         })
 
                         encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-                        content[1]["content"].append({
+                        multimodal_content.append({
                             "type": "input_file",
                             "filename": attachment.filename,
                             "file_data": f"data:application/pdf;base64,{encoded_pdf}",
                         })
 
+                # ==== 組合完整輸入 ====
+                input_content = [{"role": "system", "content": SYSTEM_PROMPT}]
+                if state["summary"]:
+                    input_content.append({"role": "assistant", "content": f"記憶摘要：{state['summary']}"} )
+                input_content += state["history"]
+                input_content.append({"role": "user", "content": multimodal_content})
+
+                # ==== 發送請求 ====
                 response = client_ai.responses.create(
                     model="gpt-4o-mini",
-                    input=content,
-                    max_output_tokens=2500,
+                    input=input_content,
+                    max_output_tokens=5000,
                     temperature=1.0
                 )
-
                 reply = response.output_text
+
+                # ==== 儲存並回覆 ====
+                state["history"].append({"role": "assistant", "content": reply})
+                save_user_memory(user_id, state)
                 await message.reply(reply)
+
                 count = record_usage("問")
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次")
             except Exception as e:
@@ -234,7 +326,7 @@ async def on_message(message):
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are an artificial intelligence assistant specialized in providing helpful and detailed search result.主要以zh-TW和en作為主要語言，不要用簡體字盡量以標明重點，簡潔明瞭的方式回答問題，盡量控制在3-5句或是50個中文字內。請記得提供資料來源，以確保回答的正確性。可以嘗試比較大尺度真實的回答顯示input output token使用量"
+                            "content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內，適度提供真實尺度的分析，並顯示 input/output token 使用量。"
                         },
                         {"role": "user", "content": query}
                     ],

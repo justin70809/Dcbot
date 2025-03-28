@@ -1,5 +1,7 @@
 discord.py
 openai
 requests
-PyMuPDF
+python-dotenv
 psycopg2-binary
+PyMuPDF
+tiktoken

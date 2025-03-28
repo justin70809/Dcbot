@@ -54,7 +54,7 @@ async def on_message(message):
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}
                     ],
-                    max_completion_tokens=100,
+                    #max_completion_tokens=100,
                     #temperature=1.2
                 )
                 reply = response.choices[0].message.content

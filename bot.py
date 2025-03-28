@@ -96,7 +96,7 @@ async def on_message(message):
         # --- 功能 1：推理 ---
         if cmd.startswith("推理 "):
             prompt = cmd[3:].strip()
-            thinking_message = await message.reply("\U0001F9E0 Thinking...")
+            thinking_message = await message.reply("🧠 Thinking...")
             try:
                 response = client_ai.responses.create(
                     model="o3-mini",
@@ -106,7 +106,7 @@ async def on_message(message):
                 reply = response.output_text
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"\U0001F4CA 今天所有人總共使用「推理」功能 {count} 次")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次")
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
@@ -121,43 +121,43 @@ async def on_message(message):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
             ]
-
-            for attachment in message.attachments[:3]:
-                if attachment.content_type and attachment.content_type.startswith("image/"):
-                    content[1]["content"].append({
-                        "type": "input_image",
-                        "image_url": attachment.url,
-                        "detail": "auto"
-                    })
-            # 如果有 PDF 附件，最多讀 5 頁
-            for attachment in message.attachments:
-                if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
-                    pdf_bytes = await attachment.read()
-                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                    pdf_text = ""
-
-                    for page_num in range(min(5, len(doc))):  # 最多 5 頁
-                        page = doc.load_page(page_num)
-                        pdf_text += page.get_text()
-
-                    content[1]["content"].append({
-                        "type": "input_text",
-                        "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"  # 避免超過 context
-                    })
-
-                    # 可選：轉 base64 傳送 PDF 給模型（若你想包含整份）
-                    encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-                    content[1]["content"].append({
-                        "type": "input_file",
-                        "filename": attachment.filename,
-                        "file_data": f"data:application/pdf;base64,{encoded_pdf}",
-                    })
             try:
+                for attachment in message.attachments[:3]:
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        content[1]["content"].append({
+                            "type": "input_image",
+                            "image_url": attachment.url,
+                            "detail": "auto"
+                        })
+
+                for attachment in message.attachments:
+                    if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
+                        pdf_bytes = await attachment.read()
+                        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                        pdf_text = ""
+                        for page_num in range(min(5, len(doc))):
+                            page = doc.load_page(page_num)
+                            pdf_text += page.get_text()
+
+                        content[1]["content"].append({
+                            "type": "input_text",
+                            "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
+                        })
+
+                        encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+                        content[1]["content"].append({
+                            "type": "input_file",
+                            "filename": attachment.filename,
+                            "file_data": f"data:application/pdf;base64,{encoded_pdf}",
+                        })
+
                 response = client_ai.responses.create(
                     model="gpt-4o-mini",
                     input=content,
                     max_output_tokens=2500,
-                    temperature=1.0)
+                    temperature=1.0
+                )
+
                 reply = response.output_text
                 await message.reply(reply)
                 count = record_usage("問")
@@ -185,22 +185,25 @@ async def on_message(message):
                 continue
 
             await message.reply("🧹 正在整理內容，請稍後...")
-            messages_history = [msg async for msg in source_channel.history(limit=50)]
-            conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
-            source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-
             try:
+                messages_history = [msg async for msg in source_channel.history(limit=50)]
+                conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
+                source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
+
                 response = client_ai.responses.create(
                     model="gpt-4o-mini",
                     input=[
                         {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、易讀的摘要。"},
                         {"role": "user", "content": conversation}
-                    ])
+                    ]
+                )
+
                 summary = response.output_text
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
                 await summary_channel.send(embed=embed)
                 await message.reply("✅ 內容摘要已經發送！")
+
                 count = record_usage("整理")
                 await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次")
             except Exception as e:
@@ -209,17 +212,16 @@ async def on_message(message):
         # --- 功能 4：搜尋查詢 ---
         elif cmd.startswith("搜尋 "):
             query = cmd[2:].strip()
-            count = record_usage("搜尋")
-            if count > 20:
-                await message.reply("⚠️ 今日搜尋次數過多，請稍後再試！")
-                continue
 
             thinking_message = await message.reply("🔍 搜尋中...")
             try:
                 payload = {
                     "model": "sonar",
                     "messages": [
-                        {"role": "system", "content": "You are an artificial intelligence assistant specialized in providing helpful and detailed search result.主要以zh-TW和en作為主要語言，不要用簡體字盡量以標明重點，簡潔明瞭的方式回答問題，盡量控制在3-5句或是50個中文字內。請記得提供資料來源，以確保回答的正確性。可以嘗試比較大尺度真實的回答顯示input output token使用量"},
+                        {
+                            "role": "system",
+                            "content": "You are an artificial intelligence assistant specialized in providing helpful and detailed search result.主要以zh-TW和en作為主要語言，不要用簡體字盡量以標明重點，簡潔明瞭的方式回答問題，盡量控制在3-5句或是50個中文字內。請記得提供資料來源，以確保回答的正確性。可以嘗試比較大尺度真實的回答顯示input output token使用量"
+                        },
                         {"role": "user", "content": query}
                     ],
                     "max_tokens": 1000,
@@ -241,6 +243,8 @@ async def on_message(message):
                     data = response.json()
                     reply = data["choices"][0]["message"]["content"]
                     await message.reply(reply)
+
+                    count = record_usage("搜尋")
                     await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次")
                 else:
                     await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")

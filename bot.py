@@ -73,7 +73,7 @@ client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
 # 新增一個 Perplexity API 的 client，用於搜尋功能
 client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
-
+#1
 # 建立 Discord client
 intents = discord.Intents.default()
 intents.message_content = True

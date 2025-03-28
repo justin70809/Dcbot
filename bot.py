@@ -1,25 +1,35 @@
+### 📦 模組與套件匯入
 import discord
 from openai import OpenAI
-import os
-import requests
-import datetime
-import fitz  # PyMuPDF
-import base64
+import os, requests, datetime, base64
+import fitz  # 處理 PDF 檔案 (PyMuPDF)
 import psycopg2
-from psycopg2.extras import RealDictCursor
-import json
-import psycopg2
-from psycopg2.extras import Json
+from psycopg2.extras import RealDictCursor, Json
 from psycopg2 import pool
+import json
 import tiktoken
 
 
-
-# ===== 1. 載入環境變數與 API 金鑰 =====
+### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+### 🛢️ PostgreSQL 資料庫連線池設定
+db_pool = pool.SimpleConnectionPool(
+    minconn=1,
+    maxconn=10,
+    dsn=DATABASE_URL,
+    cursor_factory=RealDictCursor
+)
+
+def get_db_connection():
+    return db_pool.getconn()
+
+
+### 🧠 使用者長期記憶存取
 
 def load_user_memory(user_id):
     conn = get_db_connection()
@@ -38,7 +48,7 @@ def load_user_memory(user_id):
             "history": row["history"],
             "token_accum": row["token_accum"],
             "last_response_id": row["last_response_id"],
-            "thread_count": row["thread_count"] or 0  # 如果是 NULL 則預設為 0
+            "thread_count": row["thread_count"] or 0
         }
     else:
         return {
@@ -46,75 +56,47 @@ def load_user_memory(user_id):
             "history": [],
             "token_accum": 0,
             "last_response_id": None,
-            "thread_count": 0  # ✅ 不要遺漏
+            "thread_count": 0
         }
 
 def save_user_memory(user_id, state):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
-    VALUES (%s, %s, %s, %s, %s)
-    ON CONFLICT (user_id) DO UPDATE SET
-        summary = EXCLUDED.summary,
-        token_accum = EXCLUDED.token_accum,
-        last_response_id = EXCLUDED.last_response_id,
-        thread_count = EXCLUDED.thread_count
+        INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET
+            summary = EXCLUDED.summary,
+            token_accum = EXCLUDED.token_accum,
+            last_response_id = EXCLUDED.last_response_id,
+            thread_count = EXCLUDED.thread_count
     """, (
-    user_id,
-    state["summary"],
-    state["token_accum"],
-    state["last_response_id"],
-    state["thread_count"]
+        user_id,
+        state["summary"],
+        state["token_accum"],
+        state["last_response_id"],
+        state["thread_count"]
     ))
     conn.commit()
     db_pool.putconn(conn)
 
-db_pool = pool.SimpleConnectionPool(
-    minconn=1,
-    maxconn=10,
-    dsn=DATABASE_URL,
-    cursor_factory=RealDictCursor
-)
 
-# ===== 2. 設定系統提示詞（System Prompt） =====
-SYSTEM_PROMPT = (
-    "你是擁有長期記憶的 AI 助理，能夠理解並延續使用者的對話意圖與情境。"
-    "當你看到『記憶摘要：...』時，請善用這段摘要來理解上下文。"
-    "請使用繁體中文，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
-)
-
-
-# ===== 3. 初始化 OpenAI 與 Perplexity API 客戶端 =====
-client_ai = OpenAI(api_key=OPENAI_API_KEY)
-client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
-
-# ===== 4. 建立 Discord Client 與設定 intents =====
-intents = discord.Intents.default()
-intents.message_content = True
-intents.messages = True
-intents.guilds = True
-client = discord.Client(intents=intents)
-
-# ===== 5. 資料庫初始化與使用記錄函式 =====
-def get_db_connection():
-    return db_pool.getconn()
-
+### 🏗️ 初始資料表建構與功能使用記錄統計
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # 建立 memory 表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS memory (
             user_id TEXT PRIMARY KEY,
             summary TEXT,
             history JSONB,
-            token_accum INTEGER
+            token_accum INTEGER,
+            last_response_id TEXT,
+            thread_count INTEGER
         )
     """)
 
-    # 建立 feature_usage 表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS feature_usage (
             feature TEXT PRIMARY KEY,
@@ -163,12 +145,32 @@ def is_usage_exceeded(feature_name, limit=20):
         return row["date"] == today and row["count"] >= limit
     return False
 
-# ===== 6. Discord 事件綁定 =====
+
+### 🤖 模型與提示詞設定
+SYSTEM_PROMPT = (
+    "你是擁有長期記憶的 AI 助理，能夠理解並延續使用者的對話意圖與情境。"
+    "當你看到『記憶摘要：...』時，請善用這段摘要來理解上下文。"
+    "請使用繁體中文，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
+)
+
+client_ai = OpenAI(api_key=OPENAI_API_KEY)
+client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
+
+
+### 💬 Discord Bot 初始化與事件綁定
+intents = discord.Intents.default()
+intents.message_content = True
+intents.messages = True
+intents.guilds = True
+client = discord.Client(intents=intents)
+
 @client.event
 async def on_ready():
     init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
+
+### 🔢 Token 計算與摘要輔助
 ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 
 def count_tokens(text):
@@ -179,8 +181,7 @@ def summarize_history(history):
     response = client_ai.responses.create(
         model="gpt-4o-mini",
         input=[
-            {"role": "system", "content": "請將以下多輪對話轉換為 AI 助理可以理解的長期記憶內容，"
-                                        "請以備忘錄形式簡述使用者的個性、提問主題、背景資訊、語氣與需求。"},
+            {"role": "system", "content": "請將以下多輪對話轉換為 AI 助理可以理解的長期記憶內容，請以備忘錄形式簡述使用者的個性、提問主題、背景資訊、語氣與需求。"},
             {"role": "user", "content": history_text}
         ],
         max_output_tokens=500

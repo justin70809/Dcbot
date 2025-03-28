@@ -158,7 +158,7 @@ async def on_message(message):
                    #"return_images": True,
                    #"return_related_questions": True,
                    "top_k": 0,
-                   "stream": True,
+                   "stream": False,
                    "presence_penalty": 0,
                    "frequency_penalty": 1,
                    " response_format": {},

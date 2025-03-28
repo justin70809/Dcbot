@@ -45,8 +45,8 @@ async def on_message(message):
             continue
 
         # 命令「問 」：處理 AI 互動功能
-        if cmd.startswith("問 "):
-            prompt = cmd[2:].strip()  # 「問 」兩個字元
+        if cmd.startswith("推理 "):
+            prompt = cmd[4:].strip()  # 「問 」兩個字元
             thinking_message = await message.channel.send("🧠 Thinking...")
             try:
                 response = client_ai.chat.completions.create(
@@ -64,6 +64,27 @@ async def on_message(message):
                 await message.channel.send(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
+        # 命令「問 」：處理 AI 互動功能
+        if cmd.startswith("問 "):
+            prompt = cmd[2:].strip()  # 「問 」兩個字元
+            thinking_message = await message.channel.send("🧠 Thinking...")
+            try:
+                response = client_ai.chat.completions.create(
+                    model="gpt-4o-2024-11-20",  # 或改成 "gpt-4"
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_completion_tokens=2500,
+                    temperature=1.2
+                )
+                reply = response.choices[0].message.content
+                await message.channel.send(reply)
+            except Exception as e:
+                await message.channel.send(f"❌ AI 互動時發生錯誤: {e}")
+            finally:
+                await thinking_message.delete()
+        
 
         # 命令「整理 」：處理摘要整理功能
         elif cmd.startswith("整理 "):

@@ -64,6 +64,18 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
+
+    # 建立 memory 表
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS memory (
+            user_id TEXT PRIMARY KEY,
+            summary TEXT,
+            history JSONB,
+            token_accum INTEGER
+        )
+    """)
+
+    # 建立 feature_usage 表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS feature_usage (
             feature TEXT PRIMARY KEY,
@@ -71,12 +83,14 @@ def init_db():
             date DATE NOT NULL
         )
     """)
+
     for feature in ["推理", "問", "整理", "搜尋"]:
         cur.execute("""
             INSERT INTO feature_usage (feature, count, date)
             VALUES (%s, 0, CURRENT_DATE)
             ON CONFLICT (feature) DO NOTHING
         """, (feature,))
+
     conn.commit()
     conn.close()
 

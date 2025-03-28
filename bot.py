@@ -150,7 +150,7 @@ def is_usage_exceeded(feature_name, limit=20):
 SYSTEM_PROMPT = (
     "你是擁有長期記憶的 AI 助理，能夠理解並延續使用者的對話意圖與情境。"
     "當你看到『記憶摘要：...』時，請善用這段摘要來理解上下文。"
-    "請使用繁體中文，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
+    "請使用zn-TW，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
 )
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)

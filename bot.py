@@ -3,6 +3,8 @@ from openai import OpenAI
 import os
 import requests
 import datetime
+import fitz  # PyMuPDF
+import base64
 
 # 載入環境變數
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -52,6 +54,8 @@ def record_usage(feature_name):
     feature_usage["stats"][feature_name] += 1
     return feature_usage["stats"][feature_name]
 
+
+
 @client.event
 async def on_ready():
     print(f'✅ Bot 登入成功：{client.user}')
@@ -99,6 +103,29 @@ async def on_message(message):
                         "type": "input_image",
                         "image_url": attachment.url,
                         "detail": "auto"
+                    })
+            # 如果有 PDF 附件，最多讀 5 頁
+            for attachment in message.attachments:
+                if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
+                    pdf_bytes = await attachment.read()
+                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                    pdf_text = ""
+
+                    for page_num in range(min(5, len(doc))):  # 最多 5 頁
+                        page = doc.load_page(page_num)
+                        pdf_text += page.get_text()
+
+                    content[1]["content"].append({
+                        "type": "input_text",
+                        "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"  # 避免超過 context
+                    })
+
+                    # 可選：轉 base64 傳送 PDF 給模型（若你想包含整份）
+                    encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+                    content[1]["content"].append({
+                        "type": "input_file",
+                        "filename": attachment.filename,
+                        "file_data": f"data:application/pdf;base64,{encoded_pdf}",
                     })
             try:
                 response = client_ai.responses.create(

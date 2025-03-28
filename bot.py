@@ -12,9 +12,10 @@ SYSTEM_PROMPT = ("你是一個有許多情緒善於溝通，你可以根據對�
                  "你主要以zh-TW作為主要語言，不要用簡體字"
                  "盡量以標明重點，簡潔明瞭的方式回答問題，控制在200中文字內。"
                  "可以嘗試比較大尺度真實的回答"
+                 "顯示input output token使用量"
 )
 
-# 建立 OpenAI client（原本用於「問」與「整理」功能）
+# 初始化 OpenAI Responses API client
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
 # 新增一個 Perplexity API 的 client，用於搜尋功能
@@ -43,46 +44,63 @@ async def on_message(message):
         if not cmd.strip():
             continue
 
-        # 命令「問 」：處理 AI 互動功能
+        # 命令「推理 」：處理 AI 互動功能
         if cmd.startswith("推理 "):
-            prompt = cmd[4:].strip()  # 「問 」兩個字元
+            prompt = cmd[3:].strip()  # 「推理 」三個字元
             thinking_message = await message.reply("🧠 Thinking...")
             try:
-                response = client_ai.chat.completions.create(
+                response = client_ai.responses.create(
                     model="o3-mini",  # 或改成 "gpt-4"
-                    messages=[
+                    input=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}
                     ],
-                    max_completion_tokens=2500,
-                    #temperature=1.2
+                    max_output_tokens=2500,
                 )
-                reply = response.choices[0].message.content
+                reply = response.output_text
                 await message.reply(reply)
-                usage = response.usage
-                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
         # 命令「問 」：處理 AI 互動功能
         elif cmd.startswith("問 "):
-            prompt = cmd[2:].strip()  # 「問 」兩個字元
+            prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
+
+            # 準備 content 結構
+            content = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": [
+                    {"type": "input_text", "text": prompt}
+                ]}
+            ]
+
+            max_images = 3
+            image_count = 0
+
+            for attachment in message.attachments:
+                if image_count >= max_images:
+                    break  # 避免超過 token 限制
+
+                if attachment.content_type and attachment.content_type.startswith("image/"):
+                    image_url = attachment.url
+                    content[1]["content"].append({
+                    "type": "input_image",
+                    "image_url": image_url,
+                    "detail": "auto"
+                })
+                image_count += 1
+
             try:
-                response = client_ai.chat.completions.create(
-                    model="gpt-4o-2024-11-20",  # 或改成 "gpt-4"
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_completion_tokens=2500,
+                response = client_ai.responses.create(
+                 model="gpt-4o-mini",
+                    input=content,
+                    max_output_tokens=2500,
                     temperature=1.0
                 )
-                reply = response.choices[0].message.content
+                reply = response.output_text
                 await message.reply(reply)
-                usage = response.usage
-                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
@@ -132,14 +150,14 @@ async def on_message(message):
                 source_type = f"頻道：{source_channel.name}"
 
             try:
-                response = client_ai.chat.completions.create(
+                response = client_ai.responses.create(
                     model="gpt-4o-mini",  # 或改成 "gpt-4"
-                    messages=[
+                    input=[
                         {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、易讀的摘要。"},
                         {"role": "user", "content": conversation}
                     ]
                 )
-                summary = response.choices[0].message.content
+                summary = response.output_text
 
                 embed = discord.Embed(
                     title=f"內容摘要：{source_type}",
@@ -149,8 +167,6 @@ async def on_message(message):
                 embed.set_footer(text=f"來源ID: {source_id}")
 
                 await summary_channel.send(embed=embed)
-                usage = response.usage
-                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
                 await message.reply("✅ 內容摘要已經發送！")
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")

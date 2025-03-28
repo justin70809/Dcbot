@@ -76,7 +76,7 @@ async def on_message(message):
                         {"role": "user", "content": prompt}
                     ],
                     max_completion_tokens=2500,
-                    temperature=1.5
+                    temperature=1.0
                 )
                 reply = response.choices[0].message.content
                 await message.channel.send(reply)

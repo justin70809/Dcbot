@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
-
+#1
 # ===== 1. 載入環境變數與 API 金鑰 =====
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

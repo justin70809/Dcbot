@@ -24,30 +24,51 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def load_user_memory(user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT summary, history, token_accum FROM memory WHERE user_id = %s", (user_id,))
+    cursor.execute("""
+        SELECT summary, history, token_accum, last_response_id, thread_count
+        FROM memory
+        WHERE user_id = %s
+    """, (user_id,))
     row = cursor.fetchone()
     db_pool.putconn(conn)
+
     if row:
         return {
             "summary": row["summary"],
             "history": row["history"],
-            "token_accum": row["token_accum"]
+            "token_accum": row["token_accum"],
+            "last_response_id": row["last_response_id"],
+            "thread_count": row["thread_count"] or 0  # 如果是 NULL 則預設為 0
         }
     else:
-        return {"summary": "", "history": [], "token_accum": 0}
-
+        return {
+            "summary": "",
+            "history": [],
+            "token_accum": 0,
+            "last_response_id": None,
+            "thread_count": 0  # ✅ 不要遺漏
+        }
 
 def save_user_memory(user_id, state):
-    conn = get_db_connection()  # 自己打開連線
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO memory (user_id, summary, history, token_accum)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO memory (user_id, summary, history, token_accum, last_response_id, thread_count)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (user_id) DO UPDATE SET
             summary = EXCLUDED.summary,
             history = EXCLUDED.history,
-            token_accum = EXCLUDED.token_accum
-    """, (user_id, state["summary"], Json(state["history"]), state["token_accum"]))
+            token_accum = EXCLUDED.token_accum,
+            last_response_id = EXCLUDED.last_response_id,
+            thread_count = EXCLUDED.thread_count
+    """, (
+        user_id,
+        state["summary"],
+        Json(state["history"]),
+        state["token_accum"],
+        state["last_response_id"],
+        state["thread_count"]
+    ))
     conn.commit()
     db_pool.putconn(conn)
 
@@ -182,41 +203,66 @@ async def on_message(message):
         if cmd.startswith("推理 "):
             prompt = cmd[3:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
-            try:
-                if message.guild:
-                    user_id = f"{message.guild.id}-{message.author.id}"
-                else:
-                    user_id = f"dm-{message.author.id}"
 
+            try:
+                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
                 state = load_user_memory(user_id)
 
-                # 加入當前提問
-                state["history"].append({"role": "user", "content": prompt})
-                state["token_accum"] += count_tokens(prompt)
+                # ✅ 初始化 thread_count 若不存在
+                if "thread_count" not in state:
+                    state["thread_count"] = 0
 
-                # 如累積超過 4000 token，進行摘要
-                if state["token_accum"] >= 4000:
-                    state["summary"] = summarize_history(state["history"])
-                    state["history"] = []
-                    state["token_accum"] = 0
+                # ✅ 每次對話計數 +1
+                state["thread_count"] += 1
 
-                # 組合 input
-                input_content = [{"role": "system", "content": SYSTEM_PROMPT}]
+                # ✅ 若滿 10 輪，產生摘要、重置回合數與對話 ID
+                if state["thread_count"] >= 10 and state["last_response_id"]:
+                    response = client_ai.responses.create(
+                        model="gpt-4o",
+                        previous_response_id=state["last_response_id"],
+                        input=[{
+                            "role": "user",
+                            "content": (
+                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，"
+                                "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
+                                "讓 AI 能以此為基礎繼續與使用者溝通。"
+                            )
+                        }],
+                        store=False
+                    )
+                    state["summary"] = response.output_text
+                    state["last_response_id"] = None
+                    state["thread_count"] = 0
+                    await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
+
+                # ✅ 準備新的 prompt（含摘要）
+                input_prompt = []
                 if state["summary"]:
-                    input_content.append({"role": "assistant", "content": f"記憶摘要：{state['summary']}"} )
-                input_content += state["history"] + [{"role": "user", "content": prompt}]
+                    input_prompt.append({
+                        "role": "system",
+                        "content": f"這是前段摘要：{state['summary']}"
+                    })
+                input_prompt.append({
+                    "role": "user",
+                    "content": prompt
+                })
 
+                # ✅ 開始新一輪（若 reset 則無 previous_id）
                 response = client_ai.responses.create(
-                    model="o3-mini",  # 改成 o3-mini 如果是推理
-                    input=input_content,
-                    max_output_tokens=2500,
+                    model="o3-mini",
+                    input=input_prompt,
+                    previous_response_id=state["last_response_id"],
+                    store=True
                 )
+
                 reply = response.output_text
-                state["history"].append({"role": "assistant", "content": reply})
+                state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
+
                 await message.reply(reply)
                 count = record_usage("推理")
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次")
+
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
@@ -228,33 +274,49 @@ async def on_message(message):
             thinking_message = await message.reply("🧠 Thinking...")
 
             try:
-                if message.guild:
-                    user_id = f"{message.guild.id}-{message.author.id}"
-                else:
-                    user_id = f"dm-{message.author.id}"
-
+                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
                 state = load_user_memory(user_id)
 
-                # 加入目前提問
-                state["history"].append({"role": "user", "content": prompt})
-                state["token_accum"] += count_tokens(prompt)
+                if "thread_count" not in state:
+                    state["thread_count"] = 0
+                state["thread_count"] += 1
 
-                # 觸發摘要
-                if state["token_accum"] >= 4000:
-                    state["summary"] = summarize_history(state["history"])
-                    state["history"] = []
-                    state["token_accum"] = 0
+                # ✅ 每第 10 輪觸發摘要
+                if state["thread_count"] >= 10 and state["last_response_id"]:
+                    response = client_ai.responses.create(
+                        model="gpt-4o",
+                        previous_response_id=state["last_response_id"],
+                        input=[{
+                            "role": "user",
+                            "content": (
+                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，"
+                                "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
+                                "讓 AI 能以此為基礎繼續與使用者溝通。"
+                            )
+                        }],
+                        store=False
+                    )
+                    state["summary"] = response.output_text
+                    state["last_response_id"] = None
+                    state["thread_count"] = 0
+                    await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
 
-                # ==== 處理圖片 / PDF 附件 ====
-                multimodal_content = [{"type": "input_text", "text": prompt}]
+                # ✅ 準備 input_prompt
+                input_prompt = []
+                if state["summary"]:
+                    input_prompt.append({
+                        "role": "system",
+                        "content": f"這是前段摘要：{state['summary']}"
+                    })
+                multimodal = [{"type": "input_text", "text": prompt}]
 
                 for attachment in message.attachments[:3]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
-                        multimodal_content.append({
+                        multimodal.append({
                             "type": "input_image",
                             "image_url": attachment.url,
                             "detail": "auto"
-                        })
+                    })
 
                 for attachment in message.attachments:
                     if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
@@ -265,45 +327,43 @@ async def on_message(message):
                             page = doc.load_page(page_num)
                             pdf_text += page.get_text()
 
-                        multimodal_content.append({
+                        multimodal.append({
                             "type": "input_text",
                             "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
                         })
 
                         encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-                        multimodal_content.append({
+                        multimodal.append({
                             "type": "input_file",
                             "filename": attachment.filename,
                             "file_data": f"data:application/pdf;base64,{encoded_pdf}",
                         })
 
-                # ==== 組合完整輸入 ====
-                input_content = [{"role": "system", "content": SYSTEM_PROMPT}]
-                if state["summary"]:
-                    input_content.append({"role": "assistant", "content": f"記憶摘要：{state['summary']}"} )
-                input_content += state["history"]
-                input_content.append({"role": "user", "content": multimodal_content})
+                input_prompt.append({
+                    "role": "user",
+                    "content": multimodal
+                })
 
-                # ==== 發送請求 ====
                 response = client_ai.responses.create(
                     model="gpt-4o-mini",
-                    input=input_content,
-                    max_output_tokens=5000,
-                    temperature=1.0
+                    input=input_prompt,
+                    previous_response_id=state["last_response_id"],
+                    store=True
                 )
+
                 reply = response.output_text
-
-                # ==== 儲存並回覆 ====
-                state["history"].append({"role": "assistant", "content": reply})
+                state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
-                await message.reply(reply)
 
+                await message.reply(reply)
                 count = record_usage("問")
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次")
+
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
+
 
         # --- 功能 3：內容整理摘要 ---
         elif cmd.startswith("整理 "):

@@ -164,7 +164,7 @@ async def on_message(message):
                    "presence_penalty": 0,
                    "frequency_penalty": 1,
                    " response_format": {},
-                   "web_search_options": {"search_context_size": "low"}
+                   "web_search_options": {"search_context_size": "medium"}
                 }
                 # 設定 HTTP 標頭，使用你的 PERPLEXITY_API_KEY 變數
                 headers = {

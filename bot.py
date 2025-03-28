@@ -6,8 +6,36 @@ import datetime
 import fitz  # PyMuPDF
 import base64
 import json
+import psycopg2
+
+from psycopg2.extras import RealDictCursor
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 USAGE_FILE = "feature_usage.json"
+
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS feature_usage (
+            feature TEXT PRIMARY KEY,
+            count INTEGER NOT NULL,
+            date DATE NOT NULL
+        )
+    """)
+    for feature in ["推理", "問", "整理", "搜尋"]:
+        cur.execute("""
+            INSERT INTO feature_usage (feature, count, date)
+            VALUES (%s, 0, CURRENT_DATE)
+            ON CONFLICT (feature) DO NOTHING
+        """, (feature,))
+    conn.commit()
+    conn.close()
+
 
 def load_usage():
     if os.path.exists(USAGE_FILE):
@@ -59,21 +87,33 @@ feature_usage = load_usage()
 
 
 def record_usage(feature_name):
-    today_str = str(datetime.date.today())
-    if feature_usage["date"] != today_str:
-        feature_usage["date"] = today_str
-        for key in feature_usage["stats"]:
-            feature_usage["stats"][key] = 0
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    feature_usage["stats"][feature_name] += 1
-    save_usage(feature_usage)
-    return feature_usage["stats"][feature_name]
+    # 確保日期一致，若日期不同則重置為 0
+    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
+    row = cur.fetchone()
+    today = datetime.date.today()
 
+    if row:
+        if row["date"] != today:
+            cur.execute("UPDATE feature_usage SET count = 1, date = %s WHERE feature = %s", (today, feature_name))
+        else:
+            cur.execute("UPDATE feature_usage SET count = count + 1 WHERE feature = %s", (feature_name,))
+    else:
+        cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
 
+    # 取最新值
+    cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
+    updated = cur.fetchone()["count"]
 
+    conn.commit()
+    conn.close()
+    return updated
 
 @client.event
 async def on_ready():
+    init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
 @client.event

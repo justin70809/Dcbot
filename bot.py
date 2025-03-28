@@ -41,7 +41,8 @@ async def on_message(message):
         return
     search_usage = {
     "date": datetime.date.today(),
-    "users": {}  # user_id -> 次數
+    "users": {},       # user_id -> 使用次數
+    "total": 0         # 全部使用次數
     }
     # 使用 "!" 作為分隔符拆解訊息
     commands = message.content.split("!")
@@ -185,6 +186,7 @@ async def on_message(message):
             if search_usage["date"] != today:
                 search_usage["date"] = today
                 search_usage["users"] = {}
+                search_usage["total"] = 0
 
             user_id = str(message.author.id)
             user_count = search_usage["users"].get(user_id, 0)
@@ -193,6 +195,9 @@ async def on_message(message):
                 await message.reply("⚠️ 你今天的搜尋次數已達上限（20 次）。請明天再試一次！")
                 continue  # 跳過這次搜尋請求
 
+            # 更新使用次數
+            search_usage["users"][user_id] = user_count + 1
+            search_usage["total"] += 1
             # 紀錄這次請求
             search_usage["users"][user_id] = user_count + 1
             thinking_message = await message.reply("🔍 搜尋中...")
@@ -243,6 +248,10 @@ async def on_message(message):
                     # 假設回應結構與 OpenAI 類似，從 choices 中取出訊息內容
                     reply = data["choices"][0]["message"]["content"]
                     await message.reply(reply)
+
+                    # 統計回覆
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {search_usage['total']} 次\n"
+                    f"👤 你今天是第 {search_usage['users'][user_id]} 次使用「搜尋」功能")
                 else:
                     await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:

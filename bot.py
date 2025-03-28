@@ -53,7 +53,9 @@ async def on_message(message):
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}
-                    ]
+                    ],
+                    max_completion_tokens=100,
+                    temperature=1.2
                 )
                 reply = response.choices[0].message.content
                 await message.channel.send(reply)
@@ -151,7 +153,7 @@ async def on_message(message):
                             "content": query
                         }
                     ],
-                   "max_tokens": 300,
+                   "max_tokens": 100,
                    "temperature": 0.3,
                    "top_p": 0.9,
                    #"search_domain_filter": ["web", "youtube","news"],

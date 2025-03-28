@@ -65,7 +65,7 @@ async def on_message(message):
             finally:
                 await thinking_message.delete()
         # 命令「問 」：處理 AI 互動功能
-        if cmd.startswith("問 "):
+        elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()  # 「問 」兩個字元
             thinking_message = await message.channel.send("🧠 Thinking...")
             try:

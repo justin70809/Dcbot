@@ -10,7 +10,10 @@ from psycopg2.extras import RealDictCursor
 import json
 import psycopg2
 from psycopg2.extras import Json
+from psycopg2 import pool
 import tiktoken
+
+
 
 # ===== 1. 載入環境變數與 API 金鑰 =====
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -23,7 +26,7 @@ def load_user_memory(user_id):
     cursor = conn.cursor()
     cursor.execute("SELECT summary, history, token_accum FROM memory WHERE user_id = %s", (user_id,))
     row = cursor.fetchone()
-    conn.close()
+    db_pool.putconn(conn)
     if row:
         return {
             "summary": row["summary"],
@@ -46,8 +49,14 @@ def save_user_memory(user_id, state):
             token_accum = EXCLUDED.token_accum
     """, (user_id, state["summary"], Json(state["history"]), state["token_accum"]))
     conn.commit()
-    conn.close()  # 關掉自己的，不影響其他函式
+    db_pool.putconn(conn)
 
+db_pool = pool.SimpleConnectionPool(
+    minconn=1,
+    maxconn=10,
+    dsn=DATABASE_URL,
+    cursor_factory=RealDictCursor
+)
 
 # ===== 2. 設定系統提示詞（System Prompt） =====
 SYSTEM_PROMPT = (
@@ -67,7 +76,7 @@ client = discord.Client(intents=intents)
 
 # ===== 5. 資料庫初始化與使用記錄函式 =====
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return db_pool.getconn()
 
 def init_db():
     conn = get_db_connection()
@@ -100,7 +109,7 @@ def init_db():
         """, (feature,))
 
     conn.commit()
-    conn.close()
+    db_pool.putconn(conn)
 
 def record_usage(feature_name):
     conn = get_db_connection()
@@ -118,7 +127,7 @@ def record_usage(feature_name):
     cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
     updated = cur.fetchone()["count"]
     conn.commit()
-    conn.close()
+    db_pool.putconn(conn)
     return updated
 
 def is_usage_exceeded(feature_name, limit=20):
@@ -127,7 +136,7 @@ def is_usage_exceeded(feature_name, limit=20):
     today = datetime.date.today()
     cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
     row = cur.fetchone()
-    conn.close()
+    db_pool.putconn(conn)
     if row:
         return row["date"] == today and row["count"] >= limit
     return False

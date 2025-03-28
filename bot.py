@@ -149,7 +149,7 @@ async def on_message(message):
                 )
                 embed.set_footer(text=f"來源ID: {source_id}")
 
-                await summary_channel.reply(embed=embed)
+                await summary_channel.send(embed=embed)
                 usage = response.usage
                 await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
                 await message.reply("✅ 內容摘要已經發送！")
@@ -207,8 +207,6 @@ async def on_message(message):
                     # 假設回應結構與 OpenAI 類似，從 choices 中取出訊息內容
                     reply = data["choices"][0]["message"]["content"]
                     await message.reply(reply)
-                    usage = data["usage"]
-                    await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
                 else:
                     await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:

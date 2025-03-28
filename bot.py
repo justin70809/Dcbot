@@ -80,11 +80,11 @@ def record_usage(feature_name):
 # ===== 6. Discord 事件綁定 =====
 @client.event
 async def on_ready():
+    init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
 @client.event
 async def on_message(message):
-    init_db()
     if message.author == client.user:
         return
 

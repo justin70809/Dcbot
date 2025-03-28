@@ -47,7 +47,7 @@ async def on_message(message):
         # 命令「問 」：處理 AI 互動功能
         if cmd.startswith("推理 "):
             prompt = cmd[4:].strip()  # 「問 」兩個字元
-            thinking_message = await message.channel.send("🧠 Thinking...")
+            thinking_message = await message.reply("🧠 Thinking...")
             try:
                 response = client_ai.chat.completions.create(
                     model="o3-mini",  # 或改成 "gpt-4"
@@ -59,15 +59,17 @@ async def on_message(message):
                     #temperature=1.2
                 )
                 reply = response.choices[0].message.content
-                await message.channel.send(reply)
+                await message.reply(reply)
+                usage = response.usage
+                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
             except Exception as e:
-                await message.channel.send(f"❌ AI 互動時發生錯誤: {e}")
+                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
         # 命令「問 」：處理 AI 互動功能
         elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()  # 「問 」兩個字元
-            thinking_message = await message.channel.send("🧠 Thinking...")
+            thinking_message = await message.reply("🧠 Thinking...")
             try:
                 response = client_ai.chat.completions.create(
                     model="gpt-4o-2024-11-20",  # 或改成 "gpt-4"
@@ -79,9 +81,11 @@ async def on_message(message):
                     temperature=1.0
                 )
                 reply = response.choices[0].message.content
-                await message.channel.send(reply)
+                await message.reply(reply)
+                usage = response.usage
+                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
             except Exception as e:
-                await message.channel.send(f"❌ AI 互動時發生錯誤: {e}")
+                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
         
@@ -90,31 +94,31 @@ async def on_message(message):
         elif cmd.startswith("整理 "):
             parts = cmd.split()
             if len(parts) != 3:
-                await message.channel.send("⚠️ 使用方法：`!整理 <來源頻道/討論串ID> <摘要要送到的頻道ID>`")
+                await message.reply("⚠️ 使用方法：`!整理 <來源頻道/討論串ID> <摘要要送到的頻道ID>`")
                 continue
 
             source_id_str, summary_channel_id_str = parts[1], parts[2]
             if not (source_id_str.isdigit() and summary_channel_id_str.isdigit()):
-                await message.channel.send("⚠️ 頻道ID 應為數字格式，請確認後再試一次。")
+                await message.reply("⚠️ 頻道ID 應為數字格式，請確認後再試一次。")
                 continue
 
             source_id = int(source_id_str)
             summary_channel_id = int(summary_channel_id_str)
 
-            await message.channel.send(f"🔍 正在搜尋來源 ID `{source_id}` 與目標頻道 ID `{summary_channel_id}`...")
+            await message.reply(f"🔍 正在搜尋來源 ID `{source_id}` 與目標頻道 ID `{summary_channel_id}`...")
 
             source_channel = client.get_channel(source_id)
             summary_channel = client.get_channel(summary_channel_id)
 
             if source_channel is None or not isinstance(source_channel, (discord.Thread, discord.TextChannel)):
-                await message.channel.send("⚠️ 找不到來源頻道或討論串，請確認 bot 權限與 ID 是否正確。")
+                await message.reply("⚠️ 找不到來源頻道或討論串，請確認 bot 權限與 ID 是否正確。")
                 continue
 
             if summary_channel is None or not isinstance(summary_channel, discord.TextChannel):
-                await message.channel.send("⚠️ 找不到目標摘要頻道，請確認 bot 權限與 ID 是否正確。")
+                await message.reply("⚠️ 找不到目標摘要頻道，請確認 bot 權限與 ID 是否正確。")
                 continue
 
-            await message.channel.send("🧹 正在整理內容，請稍後...")
+            await message.reply("🧹 正在整理內容，請稍後...")
 
             messages_history = [msg async for msg in source_channel.history(limit=50)]
             messages_history.reverse()
@@ -145,15 +149,17 @@ async def on_message(message):
                 )
                 embed.set_footer(text=f"來源ID: {source_id}")
 
-                await summary_channel.send(embed=embed)
-                await message.channel.send("✅ 內容摘要已經發送！")
+                await summary_channel.reply(embed=embed)
+                usage = response.usage
+                await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
+                await message.reply("✅ 內容摘要已經發送！")
             except Exception as e:
-                await message.channel.send(f"❌ 摘要整理時發生錯誤: {e}")
+                await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
 
         # 新增命令「搜尋 」：使用 Perplexity API 進行對話型搜尋
         elif cmd.startswith("搜尋 "):
             query = cmd[2:].strip()
-            thinking_message = await message.channel.send("🔍 搜尋中...")
+            thinking_message = await message.reply("🔍 搜尋中...")
             try:
                 # 設定 Perplexity API 的端點 URL
                 url = "https://api.perplexity.ai/chat/completions"
@@ -200,11 +206,13 @@ async def on_message(message):
                     data = response.json()
                     # 假設回應結構與 OpenAI 類似，從 choices 中取出訊息內容
                     reply = data["choices"][0]["message"]["content"]
-                    await message.channel.send(reply)
+                    await message.reply(reply)
+                    usage = data["usage"]
+                    await message.reply(f"🔢 Token 使用量：Prompt: {usage.prompt_tokens}, Completion: {usage.completion_tokens}, Total: {usage.total_tokens}")
                 else:
-                    await message.channel.send(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
+                    await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:
-                await message.channel.send(f"❌ 搜尋時發生錯誤: {e}")
+                await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
 

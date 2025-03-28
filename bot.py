@@ -151,18 +151,18 @@ async def on_message(message):
                             "content": query
                         }
                     ],
-                   #"max_tokens": 1000,
-                   #"temperature": 0.3,
-                   #"top_p": 0.9,
+                   "max_tokens": 1000,
+                   "temperature": 0.3,
+                   "top_p": 0.9,
                    #"search_domain_filter": ["web", "youtube","news"],
                    #"return_images": True,
                    #"return_related_questions": True,
-                   #"top_k": 0,
-                   #"stream": False,
-                   #"presence_penalty": 0,
-                   #"frequency_penalty": 1,
-                    #response_format": {},
-                   #"web_search_options": {"search_context_size": "low"}
+                   "top_k": 0,
+                   "stream": True,
+                   "presence_penalty": 0,
+                   "frequency_penalty": 1,
+                   " response_format": {},
+                   "web_search_options": {"search_context_size": "low"}
                 }
                 # 設定 HTTP 標頭，使用你的 PERPLEXITY_API_KEY 變數
                 headers = {

@@ -154,15 +154,17 @@ async def on_message(message):
                     "max_tokens": 123,
                     "temperature": 0.3,
                     "top_p": 0.9,
-                    "search_domain_filter": ["<any>"],
+                    "search_domain_filter": ["web,youtube,news"],
+                    "search_engine": "google",
+                    #search_language": "zh-TW",
                     "return_images": True,
                     "return_related_questions": True,
-                    "search_recency_filter": "<string>",
+                    "search_recency_filter": "any",
                     "top_k": 0,
                     "stream": False,
                     "presence_penalty": 0,
                     "frequency_penalty": 1,
-                    "response_format": {},
+                    #response_format": {},
                     "web_search_options": {"search_context_size": "low"}
                 }
                 # 設定 HTTP 標頭，使用你的 PERPLEXITY_API_KEY 變數

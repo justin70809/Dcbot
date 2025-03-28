@@ -5,7 +5,28 @@ import requests
 import datetime
 import fitz  # PyMuPDF
 import base64
+import json
 
+USAGE_FILE = "feature_usage.json"
+
+def load_usage():
+    if os.path.exists(USAGE_FILE):
+        with open(USAGE_FILE, "r") as f:
+            return json.load(f)
+    else:
+        return {
+            "date": str(datetime.date.today()),
+            "stats": {
+                "推理": 0,
+                "問": 0,
+                "整理": 0,
+                "搜尋": 0
+            }
+        }
+
+def save_usage(data):
+    with open(USAGE_FILE, "w") as f:
+        json.dump(data, f, ensure_ascii=False)
 # 載入環境變數
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -34,25 +55,20 @@ intents.guilds = True
 client = discord.Client(intents=intents)
 
 # 功能使用統計
-feature_usage = {
-    "date": datetime.date.today(),
-    "stats": {
-        "推理": 0,
-        "問": 0,
-        "整理": 0,
-        "搜尋": 0
-    }
-}
+feature_usage = load_usage()
+
 
 def record_usage(feature_name):
-    today = datetime.date.today()
-    if feature_usage["date"] != today:
-        feature_usage["date"] = today
+    today_str = str(datetime.date.today())
+    if feature_usage["date"] != today_str:
+        feature_usage["date"] = today_str
         for key in feature_usage["stats"]:
             feature_usage["stats"][key] = 0
 
     feature_usage["stats"][feature_name] += 1
+    save_usage(feature_usage)
     return feature_usage["stats"][feature_name]
+
 
 
 
@@ -183,7 +199,7 @@ async def on_message(message):
         elif cmd.startswith("搜尋 "):
             query = cmd[2:].strip()
             count = record_usage("搜尋")
-            if count > 1000:
+            if count > 20:
                 await message.reply("⚠️ 今日搜尋次數過多，請稍後再試！")
                 continue
 

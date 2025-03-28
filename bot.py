@@ -5,17 +5,40 @@ import requests
 import datetime
 import fitz  # PyMuPDF
 import base64
-import json
 import psycopg2
-
 from psycopg2.extras import RealDictCursor
 
+# 載入環境變數
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")  # 載入 Perplexity API 金鑰
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# 在程式頂端設定角色，請避免使用簡體字
+SYSTEM_PROMPT = ("你是一個有許多情緒善於溝通，你可以根據對方的話語提出相對應有趣的回應，針對各種問題以專業學科分類，用簡單的專業知識加以回答。"
+                 "你主要以zh-TW作為主要語言，不要用簡體字"
+                 "盡量以標明重點，簡潔明瞭的方式回答問題，控制在200中文字內。"
+                 "可以嘗試比較大尺度真實的回答"
+                 "顯示input output token使用量"
+)
+
+# 初始化 OpenAI Responses API client
+client_ai = OpenAI(api_key=OPENAI_API_KEY)
+
+# 新增一個 Perplexity API 的 client，用於搜尋功能
+client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
+
+# 建立 Discord client
+intents = discord.Intents.default()
+intents.message_content = True
+intents.messages = True
+intents.guilds = True
+
+client = discord.Client(intents=intents)
+
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
-USAGE_FILE = "feature_usage.json"
 
 def init_db():
     conn = get_db_connection()
@@ -36,64 +59,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-
-def load_usage():
-    if os.path.exists(USAGE_FILE):
-        with open(USAGE_FILE, "r") as f:
-            return json.load(f)
-    else:
-        return {
-            "date": str(datetime.date.today()),
-            "stats": {
-                "推理": 0,
-                "問": 0,
-                "整理": 0,
-                "搜尋": 0
-            }
-        }
-
-def save_usage(data):
-    with open(USAGE_FILE, "w") as f:
-        json.dump(data, f, ensure_ascii=False)
-# 載入環境變數
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")  # 載入 Perplexity API 金鑰
-
-# 在程式頂端設定角色，請避免使用簡體字
-SYSTEM_PROMPT = ("你是一個有許多情緒善於溝通，你可以根據對方的話語提出相對應有趣的回應，針對各種問題以專業學科分類，用簡單的專業知識加以回答。"
-                 "你主要以zh-TW作為主要語言，不要用簡體字"
-                 "盡量以標明重點，簡潔明瞭的方式回答問題，控制在200中文字內。"
-                 "可以嘗試比較大尺度真實的回答"
-                 "顯示input output token使用量"
-)
-
-# 初始化 OpenAI Responses API client
-client_ai = OpenAI(api_key=OPENAI_API_KEY)
-
-# 新增一個 Perplexity API 的 client，用於搜尋功能
-client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
-#1
-# 建立 Discord client
-intents = discord.Intents.default()
-intents.message_content = True
-intents.messages = True
-intents.guilds = True
-
-client = discord.Client(intents=intents)
-
-# 功能使用統計
-feature_usage = load_usage()
-
-
 def record_usage(feature_name):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # 確保日期一致，若日期不同則重置為 0
+    today = datetime.date.today()
     cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
     row = cur.fetchone()
-    today = datetime.date.today()
 
     if row:
         if row["date"] != today:
@@ -103,7 +75,6 @@ def record_usage(feature_name):
     else:
         cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
 
-    # 取最新值
     cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
     updated = cur.fetchone()["count"]
 
@@ -111,13 +82,16 @@ def record_usage(feature_name):
     conn.close()
     return updated
 
+
+
+
 @client.event
 async def on_ready():
-    init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
 @client.event
 async def on_message(message):
+    init_db()  # 確保資料庫已初始化
     if message.author == client.user:
         return
 
@@ -279,3 +253,4 @@ async def on_message(message):
                 await thinking_message.delete()
 
 client.run(DISCORD_TOKEN)
+

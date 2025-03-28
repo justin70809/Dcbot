@@ -157,7 +157,6 @@ async def on_message(message):
                     "search_domain_filter": ["web", "youtube","news"],
                     "return_images": True,
                     "return_related_questions": True,
-                    "search_recency_filter": "any",
                     "top_k": 0,
                     "stream": False,
                     "presence_penalty": 0,

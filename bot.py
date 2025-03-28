@@ -2,6 +2,8 @@ import discord
 from openai import OpenAI
 import os
 import requests
+import datetime
+
 # 載入環境變數
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,7 +39,10 @@ async def on_ready():
 async def on_message(message):
     if message.author == client.user:
         return
-
+    search_usage = {
+    "date": datetime.date.today(),
+    "users": {}  # user_id -> 次數
+    }
     # 使用 "!" 作為分隔符拆解訊息
     commands = message.content.split("!")
     for cmd in commands:
@@ -174,6 +179,22 @@ async def on_message(message):
         # 新增命令「搜尋 」：使用 Perplexity API 進行對話型搜尋
         elif cmd.startswith("搜尋 "):
             query = cmd[2:].strip()
+            today = datetime.date.today()
+
+            # 如果跨天，自動重置次數
+            if search_usage["date"] != today:
+                search_usage["date"] = today
+                search_usage["users"] = {}
+
+            user_id = str(message.author.id)
+            user_count = search_usage["users"].get(user_id, 0)
+
+            if user_count >= 20:
+                await message.reply("⚠️ 你今天的搜尋次數已達上限（20 次）。請明天再試一次！")
+                continue  # 跳過這次搜尋請求
+
+            # 紀錄這次請求
+            search_usage["users"][user_id] = user_count + 1
             thinking_message = await message.reply("🔍 搜尋中...")
             try:
                 # 設定 Perplexity API 的端點 URL
@@ -208,7 +229,7 @@ async def on_message(message):
                    "presence_penalty": 0,
                    "frequency_penalty": 1,
                    " response_format": {},
-                   "web_search_options": {"search_context_size": "medium"}
+                   "web_search_options": {"search_context_size": "low"}
                 }
                 # 設定 HTTP 標頭，使用你的 PERPLEXITY_API_KEY 變數
                 headers = {

@@ -154,7 +154,7 @@ async def on_message(message):
                     "max_tokens": 1000,
                     "temperature": 0.3,
                     "top_p": 0.9,
-                    "search_domain_filter": ["web", "youtube","news"],
+                   #"search_domain_filter": ["web", "youtube","news"],
                     "return_images": True,
                     "return_related_questions": True,
                     "top_k": 0,

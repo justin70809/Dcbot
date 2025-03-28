@@ -60,8 +60,11 @@ db_pool = pool.SimpleConnectionPool(
 
 # ===== 2. 設定系統提示詞（System Prompt） =====
 SYSTEM_PROMPT = (
-    "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內，適度提供真實尺度的分析，並顯示 input/output token 使用量。"
+    "你是擁有長期記憶的 AI 助理，能夠理解並延續使用者的對話意圖與情境。"
+    "當你看到『記憶摘要：...』時，請善用這段摘要來理解上下文。"
+    "請使用繁體中文，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
 )
+
 
 # ===== 3. 初始化 OpenAI 與 Perplexity API 客戶端 =====
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
@@ -157,7 +160,8 @@ def summarize_history(history):
     response = client_ai.responses.create(
         model="gpt-4o-mini",
         input=[
-            {"role": "system", "content": "請將以下多輪對話摘要為一段簡潔記憶，用於後續理解。"},
+            {"role": "system", "content": "請將以下多輪對話轉換為 AI 助理可以理解的長期記憶內容，"
+                                        "請以備忘錄形式簡述使用者的個性、提問主題、背景資訊、語氣與需求。"},
             {"role": "user", "content": history_text}
         ],
         max_output_tokens=500

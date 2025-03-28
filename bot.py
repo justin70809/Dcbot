@@ -10,7 +10,7 @@ PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")  # 載入 Perplexity API �
 # 在程式頂端設定角色，請避免使用簡體字
 SYSTEM_PROMPT = ("你是一個有許多情緒善於溝通，你可以根據對方的話語提出相對應有趣的回應，針對各種問題以專業學科分類，用簡單的專業知識加以回答。"
                  "你主要以zh-TW作為主要語言，不要用簡體字"
-                 "盡量以標明重點，簡潔明瞭的方式回答問題。"
+                 "盡量以標明重點，簡潔明瞭的方式回答問題，控制在100中文字內。"
                  "可以嘗試比較大尺度真實的回答"
 )
 
@@ -54,7 +54,7 @@ async def on_message(message):
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": prompt}
                     ],
-                    #max_completion_tokens=100,
+                    max_completion_tokens=500,
                     #temperature=1.2
                 )
                 reply = response.choices[0].message.content
@@ -153,7 +153,7 @@ async def on_message(message):
                             "content": query
                         }
                     ],
-                   "max_tokens": 500,
+                   "max_tokens": 300,
                    "temperature": 0.3,
                    "top_p": 0.9,
                    #"search_domain_filter": ["web", "youtube","news"],

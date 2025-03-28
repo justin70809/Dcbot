@@ -21,14 +21,20 @@ conn = psycopg2.connect(os.getenv("DATABASE_URL"))
 cursor = conn.cursor()
 
 def load_user_memory(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT summary, history, token_accum FROM memory WHERE user_id = %s", (user_id,))
     row = cursor.fetchone()
+    conn.close()
     if row:
         return {"summary": row[0], "history": row[1], "token_accum": row[2]}
     else:
         return {"summary": "", "history": [], "token_accum": 0}
 
+
 def save_user_memory(user_id, state):
+    conn = get_db_connection()  # 自己打開連線
+    cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO memory (user_id, summary, history, token_accum)
         VALUES (%s, %s, %s, %s)
@@ -38,7 +44,7 @@ def save_user_memory(user_id, state):
             token_accum = EXCLUDED.token_accum
     """, (user_id, state["summary"], Json(state["history"]), state["token_accum"]))
     conn.commit()
-    conn.close()
+    conn.close()  # 關掉自己的，不影響其他函式
 
 
 # ===== 2. 設定系統提示詞（System Prompt） =====

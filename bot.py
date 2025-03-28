@@ -77,6 +77,17 @@ def record_usage(feature_name):
     conn.close()
     return updated
 
+def is_usage_exceeded(feature_name, limit=20):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    today = datetime.date.today()
+    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return row["date"] == today and row["count"] >= limit
+    return False
+
 # ===== 6. Discord 事件綁定 =====
 @client.event
 async def on_ready():
@@ -211,6 +222,9 @@ async def on_message(message):
         
         # --- 功能 4：搜尋查詢 ---
         elif cmd.startswith("搜尋 "):
+            if is_usage_exceeded("搜尋", limit=20):
+                await message.reply("⚠️ 今天搜尋次數已達上限（20次），請明天再試。")
+                continue
             query = cmd[2:].strip()
 
             thinking_message = await message.reply("🔍 搜尋中...")

@@ -419,20 +419,19 @@ async def on_message(message):
 
                 # ✅ 這裡先抓出所有 function_call 的 tool 呼叫
                 from openai.types.beta.threads.runs import ResponseFunctionToolCall
-
-                tool_calls = [item for item in response.output if isinstance(item, ResponseFunctionToolCall)]
+                tool_calls = [item for item in response.output if type(item).__name__ == "ResponseFunctionToolCall"]
 
                 if tool_calls:
                     for tool_call in tool_calls:
-                        if tool_call["name"] == "gemini_search_tool":
-                            args = json.loads(tool_call["arguments"])
+                        if getattr(tool_call, "name", None) == "gemini_search_tool":
+                            args = json.loads(getattr(tool_call, "arguments", "{}"))
                             search_result = gemini_search_tool(args["query"])
                             tool_output = search_result["results"]
 
                             follow_up = client_ai.responses.create(
                                 model="gpt-4o",
                                 tool_outputs=[{
-                                    "tool_call_id": tool_call["id"],
+                                    "tool_call_id": getattr(tool_call, "id", None),
                                     "output": tool_output
                                 }],
                                 store=True

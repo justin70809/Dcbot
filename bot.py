@@ -418,7 +418,9 @@ async def on_message(message):
                 )
 
                 # ✅ 這裡先抓出所有 function_call 的 tool 呼叫
-                tool_calls = [item for item in response.output if item.get("type") == "function_call"]
+                from openai.types.beta.threads.runs import ResponseFunctionToolCall
+
+                tool_calls = [item for item in response.output if isinstance(item, ResponseFunctionToolCall)]
 
                 if tool_calls:
                     for tool_call in tool_calls:

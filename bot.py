@@ -417,6 +417,9 @@ async def on_message(message):
                     store=True
                 )
 
+                # ✅ 這裡先抓出所有 function_call 的 tool 呼叫
+                tool_calls = [item for item in response.output if item.get("type") == "function_call"]
+
                 if tool_calls:
                     for tool_call in tool_calls:
                         if tool_call["name"] == "gemini_search_tool":

@@ -317,7 +317,7 @@ async def on_message(message):
                 await thinking_message.delete()
 
         # --- 功能 2：問答（含圖片與 PDF） ---
-                elif cmd.startswith("問 "):
+        elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 GPT 正在思考中...")
             try:

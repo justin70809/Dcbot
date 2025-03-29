@@ -156,54 +156,6 @@ SYSTEM_PROMPT = (
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
-### 🔍 Gemini 搜尋工具函數（提供純文字摘要）
-
-def gemini_search_tool(query):
-    try:
-        GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-        if not GEMINI_API_KEY:
-            return {"results": "⚠️ 尚未設定 GEMINI_API_KEY 環境變數。"}
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GEMINI_API_KEY}"
-        }
-
-        payload = {
-            "contents": [{"parts": [{"text": query}]}],
-            "generationConfig": {
-                "temperature": 0.7,
-                "topK": 1,
-                "topP": 1,
-                "maxOutputTokens": 512,
-                "stopSequences": []
-            },
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": 2},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": 2},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": 2},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": 2}
-            ],
-            "tools": [{"type": "web_search"}]
-        }
-
-        response = requests.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-            headers=headers,
-            params={"key": GEMINI_API_KEY},
-            json=payload
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            text = result["candidates"][0]["content"]["parts"][0]["text"]
-            return {"results": text}
-        else:
-            return {"results": f"⚠️ Gemini API 錯誤：{response.status_code} {response.text}"}
-    except Exception as e:
-        return {"results": f"⚠️ 發生錯誤：{str(e)}"}
-
-
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
 intents.message_content = True
@@ -319,14 +271,19 @@ async def on_message(message):
         # --- 功能 2：問答（含圖片與 PDF） ---
         elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()
-            thinking_message = await message.reply("🧠 GPT 正在思考中...")
+            thinking_message = await message.reply("🧠 Thinking...")
+
             try:
                 user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
                 state = load_user_memory(user_id)
-                state["thread_count"] = state.get("thread_count", 0) + 1
 
+                if "thread_count" not in state:
+                    state["thread_count"] = 0
+                state["thread_count"] += 1
+
+                # ✅ 每第 10 輪觸發摘要
                 if state["thread_count"] >= 10 and state["last_response_id"]:
-                    summary_resp = client_ai.responses.create(
+                    response = client_ai.responses.create(
                         model="gpt-4o",
                         previous_response_id=state["last_response_id"],
                         input=[{
@@ -339,113 +296,71 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = summary_resp.output_text
+                    state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
 
-                # 準備新的 prompt（包含前段摘要）
+                # ✅ 準備 input_prompt
                 input_prompt = []
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
                         "content": f"這是前段摘要：{state['summary']}"
                     })
-                input_prompt.append({
-                    "role": "user",
-                    "content": prompt
-                })
-
-                # 若有附件，加入多模態輸入（圖片與 PDF 前五頁摘要）
                 multimodal = [{"type": "input_text", "text": prompt}]
+
                 for attachment in message.attachments[:3]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         multimodal.append({
                             "type": "input_image",
                             "image_url": attachment.url,
                             "detail": "auto"
-                        })
+                    })
+
                 for attachment in message.attachments:
                     if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
                         pdf_bytes = await attachment.read()
                         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                         pdf_text = ""
                         for page_num in range(min(5, len(doc))):
-                            pdf_text += doc.load_page(page_num).get_text()
+                            page = doc.load_page(page_num)
+                            pdf_text += page.get_text()
+
                         multimodal.append({
                             "type": "input_text",
                             "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
                         })
+
                         encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
                         multimodal.append({
                             "type": "input_file",
                             "filename": attachment.filename,
-                            "file_data": f"data:application/pdf;base64,{encoded_pdf}"
+                            "file_data": f"data:application/pdf;base64,{encoded_pdf}",
                         })
+
                 input_prompt.append({
                     "role": "user",
                     "content": multimodal
                 })
 
-                # 定義工具 schema（正確格式：type, name, description, parameters 平行設定）
-                tools = [{
-                    "type": "function",
-                    "name": "gemini_search_tool",
-                    "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "用來查詢的搜尋關鍵字"
-                            }
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }]
-
-                # 第一次 GPT 請求：讓模型判斷是否要呼叫工具
                 response = client_ai.responses.create(
-                    model="gpt-4o",
+                    model="gpt-4o-mini",
                     input=input_prompt,
-                    tools=tools,
-                    tool_choice="auto",
                     previous_response_id=state["last_response_id"],
                     store=True
                 )
 
-                # 從 response.output 中擷取所有 function_call 型別的項目
-                tool_calls = [item for item in response.output if type(item).__name__ == "ResponseFunctionToolCall"]
-                if tool_calls:
-                    for tool_call in tool_calls:
-                        if tool_call.name == "gemini_search_tool":
-                            args = json.loads(tool_call.arguments)
-                            search_result = gemini_search_tool(args["query"])
-                            tool_output = search_result["results"]
-                            # 注意：這裡必須提供 input 參數才能通過檢查
-                            follow_up = client_ai.responses.create(
-                                model="gpt-4o",
-                                input=input_prompt,
-                                tool_outputs=[{
-                                    "tool_call_id": tool_call.id,
-                                    "output": tool_output
-                                }],
-                                store=True
-                            )
-                            reply = follow_up.output_text
-                            state["last_response_id"] = follow_up.id
-                            break
-                else:
-                    reply = response.output_text
-                    state["last_response_id"] = response.id
-
+                reply = response.output_text
+                state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
+
                 await message.reply(reply)
                 count = record_usage("問")
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次")
+
             except Exception as e:
-                await message.reply(f"❌ 問答時發生錯誤：{e}")
+                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
 

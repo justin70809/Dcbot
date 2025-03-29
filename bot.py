@@ -389,20 +389,25 @@ async def on_message(message):
                 })
 
                 # ---- 設定 GPT 工具 schema ----
-                tool_schema = [{
-                    "type": "function",
-                    "function": {
-                        "name": "gemini_search_tool",
-                        "description": "根據問題進行即時網路搜尋，以獲得最新相關資訊",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string"}
-                            },
-                            "required": ["query"]
-                        }
+                tool_schema = [
+    {
+        "type": "function",
+        "function": {
+            "name": "gemini_search_tool",
+            "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "用來查詢的搜尋關鍵字"
                     }
-                }]
+                },
+                "required": ["query"]
+            }
+        }
+    }
+]
 
                 # ---- 第一次 GPT 請求，讓它決定是否使用工具 ----
                 response = client_ai.responses.create(

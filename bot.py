@@ -417,8 +417,8 @@ async def on_message(message):
                     store=True
                 )
 
-                if response.tool_calls:
-                    for tool_call in response.tool_calls:
+                if tool_calls:
+                    for tool_call in tool_calls:
                         if tool_call["name"] == "gemini_search_tool":
                             args = json.loads(tool_call["arguments"])
                             search_result = gemini_search_tool(args["query"])

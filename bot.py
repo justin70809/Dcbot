@@ -413,7 +413,23 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model="gpt-4o-mini",
                     input=input_prompt,
-                    tools=tool_schema,
+                    tools=[{
+                        "type": "function",
+                        "function": {
+                            "name": "gemini_search_tool",
+                            "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "用來查詢的搜尋關鍵字"
+                                    }
+                                },
+                                "required": ["query"]
+                                            }
+                                    }
+                    }],
                     tool_choice="auto",
                     previous_response_id=state["last_response_id"],
                     store=True

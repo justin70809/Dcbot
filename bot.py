@@ -320,13 +320,12 @@ async def on_message(message):
         elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 GPT 正在思考中...")
-
             try:
                 user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
                 state = load_user_memory(user_id)
-
                 state["thread_count"] = state.get("thread_count", 0) + 1
 
+                # 每滿 10 輪對話自動產生摘要，重置對話記憶
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     summary_resp = client_ai.responses.create(
                         model="gpt-4o",
@@ -346,16 +345,20 @@ async def on_message(message):
                     state["thread_count"] = 0
                     await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
 
-                # 多模態處理
+                # 準備新的 prompt（包含前段摘要）
                 input_prompt = []
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
                         "content": f"這是前段摘要：{state['summary']}"
                     })
+                input_prompt.append({
+                    "role": "user",
+                    "content": prompt
+                })
 
+                # 若有附件，加入多模態輸入（圖片與 PDF 前五頁摘要）
                 multimodal = [{"type": "input_text", "text": prompt}]
-
                 for attachment in message.attachments[:3]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         multimodal.append({
@@ -363,7 +366,6 @@ async def on_message(message):
                             "image_url": attachment.url,
                             "detail": "auto"
                         })
-
                 for attachment in message.attachments:
                     if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
                         pdf_bytes = await attachment.read()
@@ -371,25 +373,23 @@ async def on_message(message):
                         pdf_text = ""
                         for page_num in range(min(5, len(doc))):
                             pdf_text += doc.load_page(page_num).get_text()
-
                         multimodal.append({
                             "type": "input_text",
                             "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
                         })
-
                         encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
                         multimodal.append({
                             "type": "input_file",
                             "filename": attachment.filename,
                             "file_data": f"data:application/pdf;base64,{encoded_pdf}"
                         })
-
+                # 若有多模態輸入，覆蓋原有 prompt
                 input_prompt.append({
                     "role": "user",
                     "content": multimodal
                 })
 
-                # ✅ 正確 tools schema（注意這裡沒有 function: {...} 層）
+                # 定義工具 schema（注意這裡的格式要與 "type", "name", "description", "parameters" 平行）
                 tools = [{
                     "type": "function",
                     "name": "gemini_search_tool",
@@ -407,7 +407,7 @@ async def on_message(message):
                     }
                 }]
 
-                # 🔁 第一次 GPT 請求：判斷是否使用工具
+                # 第一次 GPT 請求，讓模型判斷是否要呼叫工具
                 response = client_ai.responses.create(
                     model="gpt-4o",
                     input=input_prompt,
@@ -417,26 +417,22 @@ async def on_message(message):
                     store=True
                 )
 
-                # ✅ 這裡先抓出所有 function_call 的 tool 呼叫
-                from openai.types.beta.threads.runs import ResponseFunctionToolCall
+                # 從 response.output 中找出所有 function_call 類型的項目
                 tool_calls = [item for item in response.output if type(item).__name__ == "ResponseFunctionToolCall"]
-
                 if tool_calls:
                     for tool_call in tool_calls:
-                        if getattr(tool_call, "name", None) == "gemini_search_tool":
-                            args = json.loads(getattr(tool_call, "arguments", "{}"))
+                        if tool_call.name == "gemini_search_tool":
+                            args = json.loads(tool_call.arguments)
                             search_result = gemini_search_tool(args["query"])
                             tool_output = search_result["results"]
-
                             follow_up = client_ai.responses.create(
                                 model="gpt-4o",
                                 tool_outputs=[{
-                                    "tool_call_id": getattr(tool_call, "id", None),
+                                    "tool_call_id": tool_call.id,
                                     "output": tool_output
                                 }],
                                 store=True
                             )
-
                             reply = follow_up.output_text
                             state["last_response_id"] = follow_up.id
                             break
@@ -448,7 +444,6 @@ async def on_message(message):
                 await message.reply(reply)
                 count = record_usage("問")
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次")
-
             except Exception as e:
                 await message.reply(f"❌ 問答時發生錯誤：{e}")
             finally:

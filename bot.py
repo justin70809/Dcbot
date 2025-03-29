@@ -317,7 +317,7 @@ async def on_message(message):
                 await thinking_message.delete()
 
         # --- 功能 2：問答（含圖片與 PDF） ---
-        elif cmd.startswith("問 "):
+                elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 GPT 正在思考中...")
             try:
@@ -325,7 +325,6 @@ async def on_message(message):
                 state = load_user_memory(user_id)
                 state["thread_count"] = state.get("thread_count", 0) + 1
 
-                # 每滿 10 輪對話自動產生摘要，重置對話記憶
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     summary_resp = client_ai.responses.create(
                         model="gpt-4o",
@@ -383,13 +382,12 @@ async def on_message(message):
                             "filename": attachment.filename,
                             "file_data": f"data:application/pdf;base64,{encoded_pdf}"
                         })
-                # 若有多模態輸入，覆蓋原有 prompt
                 input_prompt.append({
                     "role": "user",
                     "content": multimodal
                 })
 
-                # 定義工具 schema（注意這裡的格式要與 "type", "name", "description", "parameters" 平行）
+                # 定義工具 schema（正確格式：type, name, description, parameters 平行設定）
                 tools = [{
                     "type": "function",
                     "name": "gemini_search_tool",
@@ -407,7 +405,7 @@ async def on_message(message):
                     }
                 }]
 
-                # 第一次 GPT 請求，讓模型判斷是否要呼叫工具
+                # 第一次 GPT 請求：讓模型判斷是否要呼叫工具
                 response = client_ai.responses.create(
                     model="gpt-4o",
                     input=input_prompt,
@@ -417,7 +415,7 @@ async def on_message(message):
                     store=True
                 )
 
-                # 從 response.output 中找出所有 function_call 類型的項目
+                # 從 response.output 中擷取所有 function_call 型別的項目
                 tool_calls = [item for item in response.output if type(item).__name__ == "ResponseFunctionToolCall"]
                 if tool_calls:
                     for tool_call in tool_calls:
@@ -425,8 +423,10 @@ async def on_message(message):
                             args = json.loads(tool_call.arguments)
                             search_result = gemini_search_tool(args["query"])
                             tool_output = search_result["results"]
+                            # 注意：這裡必須提供 input 參數才能通過檢查
                             follow_up = client_ai.responses.create(
                                 model="gpt-4o",
+                                input=input_prompt,
                                 tool_outputs=[{
                                     "tool_call_id": tool_call.id,
                                     "output": tool_output
@@ -448,7 +448,6 @@ async def on_message(message):
                 await message.reply(f"❌ 問答時發生錯誤：{e}")
             finally:
                 await thinking_message.delete()
-
 
         # --- 功能 3：內容整理摘要 ---
         elif cmd.startswith("整理 "):

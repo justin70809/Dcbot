@@ -329,7 +329,7 @@ async def on_message(message):
 
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     summary_resp = client_ai.responses.create(
-                        model="gpt-4o-mini",
+                        model="gpt-4o",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -346,13 +346,14 @@ async def on_message(message):
                     state["thread_count"] = 0
                     await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
 
-                # ---- 多模態輸入與摘要設定 ----
+                # 多模態處理
                 input_prompt = []
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
                         "content": f"這是前段摘要：{state['summary']}"
                     })
+
                 multimodal = [{"type": "input_text", "text": prompt}]
 
                 for attachment in message.attachments[:3]:
@@ -388,54 +389,34 @@ async def on_message(message):
                     "content": multimodal
                 })
 
-                # ---- 設定 GPT 工具 schema ----
-                tool_schema = [
-    {
-        "type": "function",
-        "function": {
-            "name": "gemini_search_tool",
-            "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "用來查詢的搜尋關鍵字"
+                # ✅ 正確 tools schema（注意這裡沒有 function: {...} 層）
+                tools = [{
+                    "type": "function",
+                    "name": "gemini_search_tool",
+                    "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "用來查詢的搜尋關鍵字"
+                            }
+                        },
+                        "required": ["query"],
+                        "additionalProperties": False
                     }
-                },
-                "required": ["query"]
-            }
-        }
-    }
-]
+                }]
 
-                # ---- 第一次 GPT 請求，讓它決定是否使用工具 ----
+                # 🔁 第一次 GPT 請求：判斷是否使用工具
                 response = client_ai.responses.create(
-                    model="gpt-4o-mini",
+                    model="gpt-4o",
                     input=input_prompt,
-                    tools=[{
-                        "type": "function",
-                        "function": {
-                            "name": "gemini_search_tool",
-                            "description": "根據使用者輸入進行即時網路搜尋，以獲得最新資訊",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {
-                                        "type": "string",
-                                        "description": "用來查詢的搜尋關鍵字"
-                                    }
-                                },
-                                "required": ["query"]
-                                            }
-                                    }
-                    }],
+                    tools=tools,
                     tool_choice="auto",
                     previous_response_id=state["last_response_id"],
                     store=True
                 )
 
-                # ---- 若 GPT 想呼叫工具 ----
                 if response.tool_calls:
                     for tool_call in response.tool_calls:
                         if tool_call["name"] == "gemini_search_tool":
@@ -444,7 +425,7 @@ async def on_message(message):
                             tool_output = search_result["results"]
 
                             follow_up = client_ai.responses.create(
-                                model="gpt-4o-mini",
+                                model="gpt-4o",
                                 tool_outputs=[{
                                     "tool_call_id": tool_call["id"],
                                     "output": tool_output
@@ -456,7 +437,6 @@ async def on_message(message):
                             state["last_response_id"] = follow_up.id
                             break
                 else:
-                    # 如果沒用 tool，就用原本回覆
                     reply = response.output_text
                     state["last_response_id"] = response.id
 

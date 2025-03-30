@@ -243,10 +243,19 @@ async def on_message(message):
                 reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
-
+                usage = response.usage
+                details = usage.get("output_tokens_details", {})
+                reasoning = details.get("reasoning_tokens", 0)
+                visible = usage.get("output_tokens", 0) - reasoning
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
+                                    f"📊 token 使用量：\n"
+                                    f"- 輸入tokens: {usage.get('input_tokens', 0)}\n"
+                                    f"- 推理tokens: {reasoning}\n"
+                                    f"- 回應tokens: {visible}\n"
+                                    f"- 總 token: {usage.get('total_tokens', 0)}"
+                                    )
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -347,10 +356,16 @@ async def on_message(message):
                 reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
-
+                usage = response.usage
+                details = usage.get("output_tokens_details", {})
+                visible = usage.get("output_tokens", 0) - reasoning
                 await message.reply(reply)
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤")
-
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
+                                    f"📊 token 使用量：\n"
+                                    f"- 輸入tokens: {usage.get('input_tokens', 0)}\n"
+                                    f"- 回應tokens: {visible}\n"
+                                    f"- 總 token: {usage.get('total_tokens', 0)}"
+                                    )
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
             finally:
@@ -386,7 +401,9 @@ async def on_message(message):
                         {"role": "user", "content": conversation}
                     ]
                 )
-
+                usage = response.usage
+                details = usage.get("output_tokens_details", {})
+                visible = usage.get("output_tokens", 0) - reasoning
                 summary = response.output_text
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
@@ -394,7 +411,12 @@ async def on_message(message):
                 await message.reply("✅ 內容摘要已經發送！")
 
                 count = record_usage("整理")
-                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次，本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
+                                    f"📊 token 使用量：\n"
+                                    f"- 輸入tokens: {usage.get('input_tokens', 0)}\n"
+                                    f"- 回應tokens: {visible}\n"
+                                    f"- 總 token: {usage.get('total_tokens', 0)}"
+                                    )
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
         

@@ -361,15 +361,21 @@ async def on_message(message):
                 reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
-                usage = response.usage
-                details = usage.get("output_tokens_details", {})
-                visible = usage.get("output_tokens", 0) - reasoning
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+                total_tokens = response.usage.total_tokens
+
+                # 注意：output_tokens_details 可能不存在，要用 getattr 保險
+                details = getattr(response.usage, "output_tokens_details", {})
+                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
+                visible_tokens = output_tokens - reasoning_tokens
                 await message.reply(reply)
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
-                                    f"- 輸入tokens: {usage.get('input_tokens', 0)}\n"
-                                    f"- 回應tokens: {visible}\n"
-                                    f"- 總 token: {usage.get('total_tokens', 0)}"
+                                    f"- 輸入 tokens: {input_tokens}\n"
+                                    f"- 推理 tokens: {reasoning_tokens}\n"
+                                    f"- 回應 tokens: {visible_tokens}\n"
+                                    f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -406,9 +412,14 @@ async def on_message(message):
                         {"role": "user", "content": conversation}
                     ]
                 )
-                usage = response.usage
-                details = usage.get("output_tokens_details", {})
-                visible = usage.get("output_tokens", 0) - reasoning
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+                total_tokens = response.usage.total_tokens
+
+                # 注意：output_tokens_details 可能不存在，要用 getattr 保險
+                details = getattr(response.usage, "output_tokens_details", {})
+                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
+                visible_tokens = output_tokens - reasoning_tokens
                 summary = response.output_text
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
@@ -418,9 +429,10 @@ async def on_message(message):
                 count = record_usage("整理")
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
-                                    f"- 輸入tokens: {usage.get('input_tokens', 0)}\n"
-                                    f"- 回應tokens: {visible}\n"
-                                    f"- 總 token: {usage.get('total_tokens', 0)}"
+                                    f"- 輸入 tokens: {input_tokens}\n"
+                                    f"- 推理 tokens: {reasoning_tokens}\n"
+                                    f"- 回應 tokens: {visible_tokens}\n"
+                                    f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")

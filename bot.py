@@ -367,13 +367,11 @@ async def on_message(message):
 
                 # 注意：output_tokens_details 可能不存在，要用 getattr 保險
                 details = getattr(response.usage, "output_tokens_details", {})
-                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await message.reply(reply)
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 推理 tokens: {reasoning_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
                                     f"- 總 token: {total_tokens}"
                                     )
@@ -418,7 +416,6 @@ async def on_message(message):
 
                 # 注意：output_tokens_details 可能不存在，要用 getattr 保險
                 details = getattr(response.usage, "output_tokens_details", {})
-                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 summary = response.output_text
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
@@ -430,7 +427,6 @@ async def on_message(message):
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 推理 tokens: {reasoning_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
                                     f"- 總 token: {total_tokens}"
                                     )

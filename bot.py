@@ -235,7 +235,6 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     reasoning={"effort", "high"},
-                    temperature=0.8,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

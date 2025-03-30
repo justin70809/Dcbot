@@ -8,8 +8,11 @@ from psycopg2.extras import RealDictCursor, Json
 from psycopg2 import pool
 import json
 import tiktoken
+from google import genai
+from google.genai import types
+from google.genai.types import Tool, GenerateContentConfig, GoogleSearch
 
-
+# ===== 1. 載入環境變數與 API 金鑰 =====
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -220,7 +223,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題。"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，以繁體為語言。"
                     })
                 input_prompt.append({
                     "role": "user",
@@ -287,7 +290,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題。"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言"
                     })
                 multimodal = [{"type": "input_text", "text": prompt}]
 
@@ -326,8 +329,8 @@ async def on_message(message):
                     "role": "user",
                     "content": multimodal
                 })
-                current_count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                if current_count <= 50:
+                count = record_usage("問")  # 這裡同時也會累加一次使用次數
+                if count <= 50:
                     model_used = "gpt-4o"
                 else:
                     model_used = "gpt-4o-mini"
@@ -344,7 +347,6 @@ async def on_message(message):
                 save_user_memory(user_id, state)
 
                 await message.reply(reply)
-                count = record_usage("問")
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤")
 
             except Exception as e:
@@ -396,47 +398,71 @@ async def on_message(message):
         
         # --- 功能 4：搜尋查詢 ---
         elif cmd.startswith("搜尋 "):
-            if is_usage_exceeded("搜尋", limit=20):
-                await message.reply("⚠️ 今天搜尋次數已達上限（20次），請明天再試。")
-                continue
             query = cmd[2:].strip()
-
             thinking_message = await message.reply("🔍 搜尋中...")
-            try:
-                model_used="sonar"
-                payload = {
-                    "model": model_used,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內，適度提供真實尺度的分析，並顯示 input/output token 使用量。"
-                        },
-                        {"role": "user", "content": query}
-                    ],
-                    "max_tokens": 1000,
-                    "temperature": 1.2,
-                    "top_p": 0.9,
-                    "top_k": 0,
-                    "stream": False,
-                    "presence_penalty": 0,
-                    "frequency_penalty": 1,
-                    " response_format": {},
-                    "web_search_options": {"search_context_size": "low"}
-                }
-                headers = {
-                    "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                    "Content-Type": "application/json"
-                }
-                response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    reply = data["choices"][0]["message"]["content"]
-                    await message.reply(reply)
 
+            try:
+                if is_usage_exceeded("搜尋", limit=-1):
+                    # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
+                    api_key = os.getenv("GEMINI_API_KEY")
+                    client_gemini = genai.Client(api_key=api_key)
+
+                    search_tool = Tool(google_search=GoogleSearch())
+
+                    response = client_gemini.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[{
+                        "role": "user",
+                        "parts": [{"text": query}]
+                    }],
+                    config=GenerateContentConfig(
+                    tools=[search_tool],
+                    response_modalities=["TEXT"]
+                    )
+                )
+
+                    reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
+                    await message.reply(reply_text)
                     count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次+，本次使用的模型：{model_used}")
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.0-flash")
+
                 else:
-                    await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
+                    # ✅ 正常狀況：使用 Perplexity 查詢
+                    model_used = "sonar"
+                    payload = {
+                        "model": model_used,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內。"
+                            },
+                            {"role": "user", "content": query}
+                        ],
+                        "max_tokens": 1000,
+                        "temperature": 1.2,
+                        "top_p": 0.9,
+                        "top_k": 0,
+                        "stream": False,
+                        "presence_penalty": 0,
+                        "frequency_penalty": 1,
+                        " response_format": {},
+                        "web_search_options": {"search_context_size": "low"}
+                    }
+                    headers = {
+                        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                        "Content-Type": "application/json"
+                    }
+                    response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        reply = data["choices"][0]["message"]["content"]
+                        await message.reply(reply)
+
+                        count = record_usage("搜尋")
+                        await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
+                    else:
+                        await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:
                 await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:

@@ -261,7 +261,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次"+f"本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -364,7 +364,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("問")
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次"+f"本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -409,7 +409,7 @@ async def on_message(message):
                 await message.reply("✅ 內容摘要已經發送！")
 
                 count = record_usage("整理")
-                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次"+f"本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次，本次使用的模型：{model_used}")
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
         
@@ -453,7 +453,7 @@ async def on_message(message):
                     await message.reply(reply)
 
                     count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次"+f"本次使用的模型：{model_used}")
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次+，本次使用的模型：{model_used}")
                 else:
                     await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:

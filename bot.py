@@ -497,6 +497,15 @@ async def on_message(message):
                 await message.reply(f"📖 目前長期記憶摘要：\n{summary}")
             else:
                 await message.reply("目前尚無長期記憶摘要。")
+        elif cmd.startswith("指令選單"):
+            embed = discord.Embed(title="指令選單", color=discord.Color.blue())
+            embed.add_field(name="推理", value="用法：!推理 <內容>\n功能：進行 AI 推理回應", inline=False)
+            embed.add_field(name="問", value="用法：!問 <內容>\n功能：進行問答互動，支援圖片與 PDF 上傳", inline=False)
+            embed.add_field(name="整理", value="用法：!整理 <來源頻道/討論串ID> <摘要送出頻道ID>\n功能：整理對話內容並生成摘要", inline=False)
+            embed.add_field(name="搜尋", value="用法：!搜尋 <查詢內容>\n功能：進行網路搜尋", inline=False)
+            embed.add_field(name="重置記憶", value="用法：!重置記憶 / !確定重置 / !取消重置\n功能：重置長期記憶", inline=False)
+            embed.add_field(name="顯示記憶", value="用法：!顯示記憶\n功能：顯示目前的長期記憶摘要", inline=False)
+            await message.reply(embed=embed)
 
 
                 

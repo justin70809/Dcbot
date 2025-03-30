@@ -145,14 +145,6 @@ def is_usage_exceeded(feature_name, limit=20):
         return row["date"] == today and row["count"] >= limit
     return False
 
-
-### 🤖 模型與提示詞設定
-SYSTEM_PROMPT = (
-    "你是擁有長期記憶的 AI 助理，能夠理解並延續使用者的對話意圖與情境。"
-    "當你看到『記憶摘要：...』時，請善用這段摘要來理解上下文。"
-    "請使用zn-TW，回答簡潔有條理，必要時可以補充歷史背景或延續之前的話題。"
-)
-
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
@@ -175,17 +167,6 @@ ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 def count_tokens(text):
     return len(ENCODER.encode(text))
 
-def summarize_history(history):
-    history_text = "\n".join(f"{m['role']}: {m['content']}" for m in history)
-    response = client_ai.responses.create(
-        model="gpt-4o-mini",
-        input=[
-            {"role": "system", "content": "請將以下多輪對話轉換為 AI 助理可以理解的長期記憶內容，請以備忘錄形式簡述使用者的個性、提問主題、背景資訊、語氣與需求。"},
-            {"role": "user", "content": history_text}
-        ],
-        max_output_tokens=500
-    )
-    return response.output_text
 
 pending_reset_confirmations = {}
 @client.event

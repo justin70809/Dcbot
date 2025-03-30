@@ -345,7 +345,7 @@ async def on_message(message):
                 })
 
                 response = client_ai.responses.create(
-                    model="gpt-4o",
+                    model="gpt-4o-2024-11-20",
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

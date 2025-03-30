@@ -337,6 +337,7 @@ async def on_message(message):
                             "type": "input_file",
                             "filename": attachment.filename,
                             "file_data": f"data:application/pdf;base64,{encoded_pdf}",
+                            "file_url": attachment.proxy_url
                         })
 
                 input_prompt.append({

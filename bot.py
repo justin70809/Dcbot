@@ -402,7 +402,7 @@ async def on_message(message):
             thinking_message = await message.reply("🔍 搜尋中...")
 
             try:
-                if is_usage_exceeded("搜尋", limit=-1):
+                if is_usage_exceeded("搜尋", limit=20):
                     # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
                     api_key = os.getenv("GEMINI_API_KEY")
                     client_gemini = genai.Client(api_key=api_key)
@@ -505,13 +505,42 @@ async def on_message(message):
             else:
                 await message.reply("目前尚無長期記憶摘要。")
         elif cmd.startswith("指令選單"):
-            embed = discord.Embed(title="指令選單", color=discord.Color.blue())
-            embed.add_field(name="推理", value="用法：!推理 <內容>\n功能：進行 AI 推理回應，注意沒有網路查詢功能，資料可能有誤", inline=False)
-            embed.add_field(name="問", value="用法：!問 <內容>\n功能：進行問答互動，支援圖片與 PDF 上傳，注意沒有網路查詢功能，資料可能有誤", inline=False)
-            embed.add_field(name="整理", value="用法：!整理 <來源頻道/討論串ID> <摘要送出頻道ID>\n功能：整理對話內容並生成摘要", inline=False)
-            embed.add_field(name="搜尋", value="用法：!搜尋 <查詢內容>\n功能：進行網路搜尋", inline=False)
-            embed.add_field(name="重置記憶", value="用法：!重置記憶 / !確定重置 / !取消重置\n功能：重置長期記憶", inline=False)
-            embed.add_field(name="顯示記憶", value="用法：!顯示記憶\n功能：顯示目前的長期記憶摘要", inline=False)
+            embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
+            embed.add_field(
+                name="🧠 推理",
+                value="`!推理 <內容>`\n使用 GPT-4o-mini 進行純文字推理，不含網路查詢。每 10 輪會自動總結記憶。",
+                inline=False
+            )
+            embed.add_field(
+                name="❓ 問",
+                value="`!問 <內容>`\n支援圖片與 PDF 附件的問答互動。模型自動切換 GPT-4o / GPT-4o-mini，無網路查詢功能。",
+                inline=False
+            )
+            embed.add_field(
+                name="🧹 整理",
+                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 50 則訊息生成摘要並發送至指定頻道。",
+                inline=False
+            )
+            embed.add_field(
+                name="🔍 搜尋",
+                value="`!搜尋 <查詢內容>`\n使用 Perplexity 進行網路查詢。若超過每日 20 次上限，將自動切換為 Gemini + Google Search。",
+                inline=False
+            )
+            embed.add_field(
+                name="🧠 顯示記憶",
+                value="`!顯示記憶`\n顯示目前的長期記憶摘要。",
+                inline=False
+            )
+            embed.add_field(
+                name="♻️ 重置記憶",
+                value="`!重置記憶` → 開始記憶清除流程\n`!確定重置` / `!取消重置` → 確認或取消重置",
+                inline=False
+            )
+            embed.add_field(
+                name="📖 指令選單",
+                value="`!指令選單`\n顯示本說明選單。",
+                inline=False
+            )
             await message.reply(embed=embed)
 
 

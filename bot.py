@@ -261,7 +261,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}"+"注意沒有網路查詢功能，資料可能有誤")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -364,7 +364,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("問")
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}")
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}"+"注意沒有網路查詢功能，資料可能有誤")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")

@@ -234,7 +234,7 @@ async def on_message(message):
                 model_used="o3-mini"
                 response = client_ai.responses.create(
                     model=model_used,
-                    reasoning={"effort", "high"},
+                    reasoning={"effort": "high"},
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

@@ -247,8 +247,9 @@ async def on_message(message):
                 })
 
                 # ✅ 開始新一輪（若 reset 則無 previous_id）
+                model_used="o3-mini"
                 response = client_ai.responses.create(
-                    model="o3-mini",
+                    model=model_used,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True
@@ -260,7 +261,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次"+f"本次使用的模型：{model_used}")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -344,9 +345,14 @@ async def on_message(message):
                     "role": "user",
                     "content": multimodal
                 })
+                current_count = record_usage("問")  # 這裡同時也會累加一次使用次數
+                if current_count <= 50:
+                    model_used = "gpt-4o"
+                else:
+                    model_used = "gpt-4o-mini"
 
                 response = client_ai.responses.create(
-                    model="gpt-4o-2024-11-20",
+                    model=model_used,  # 使用動態決定的模型
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True
@@ -358,7 +364,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("問")
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次")
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次"+f"本次使用的模型：{model_used}")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -387,9 +393,9 @@ async def on_message(message):
                 messages_history = [msg async for msg in source_channel.history(limit=50)]
                 conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
                 source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-
+                model_used="gpt-4o-mini"
                 response = client_ai.responses.create(
-                    model="gpt-4o-mini",
+                    model=model_used,
                     input=[
                         {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、易讀的摘要。"},
                         {"role": "user", "content": conversation}
@@ -403,7 +409,7 @@ async def on_message(message):
                 await message.reply("✅ 內容摘要已經發送！")
 
                 count = record_usage("整理")
-                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次")
+                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次"+f"本次使用的模型：{model_used}")
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
         
@@ -416,8 +422,9 @@ async def on_message(message):
 
             thinking_message = await message.reply("🔍 搜尋中...")
             try:
+                model_used="sonar"
                 payload = {
-                    "model": "sonar",
+                    "model": model_used,
                     "messages": [
                         {
                             "role": "system",
@@ -446,7 +453,7 @@ async def on_message(message):
                     await message.reply(reply)
 
                     count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次")
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次"+f"本次使用的模型：{model_used}")
                 else:
                     await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
             except Exception as e:

@@ -222,7 +222,7 @@ async def on_message(message):
                         input=[{
                             "role": "user",
                             "content": (
-                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，"
+                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在500字以內，"
                                 "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
                                 "讓 AI 能以此為基礎繼續與使用者溝通。"
                             )
@@ -239,7 +239,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題。"
                     })
                 input_prompt.append({
                     "role": "user",
@@ -289,7 +289,7 @@ async def on_message(message):
                         input=[{
                             "role": "user",
                             "content": (
-                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，"
+                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在500字以內，"
                                 "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
                                 "讓 AI 能以此為基礎繼續與使用者溝通。"
                             )
@@ -306,7 +306,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題。"
                     })
                 multimodal = [{"type": "input_text", "text": prompt}]
 

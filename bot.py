@@ -261,7 +261,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}"+"注意沒有網路查詢功能，資料可能有誤")
+                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -364,7 +364,7 @@ async def on_message(message):
 
                 await message.reply(reply)
                 count = record_usage("問")
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}"+"注意沒有網路查詢功能，資料可能有誤")
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤")
 
             except Exception as e:
                 await message.reply(f"❌ AI 互動時發生錯誤: {e}")
@@ -499,8 +499,8 @@ async def on_message(message):
                 await message.reply("目前尚無長期記憶摘要。")
         elif cmd.startswith("指令選單"):
             embed = discord.Embed(title="指令選單", color=discord.Color.blue())
-            embed.add_field(name="推理", value="用法：!推理 <內容>\n功能：進行 AI 推理回應"+"注意沒有網路查詢功能，資料可能有誤", inline=False)
-            embed.add_field(name="問", value="用法：!問 <內容>\n功能：進行問答互動，支援圖片與 PDF 上傳"+"注意沒有網路查詢功能，資料可能有誤", inline=False)
+            embed.add_field(name="推理", value="用法：!推理 <內容>\n功能：進行 AI 推理回應，注意沒有網路查詢功能，資料可能有誤", inline=False)
+            embed.add_field(name="問", value="用法：!問 <內容>\n功能：進行問答互動，支援圖片與 PDF 上傳，注意沒有網路查詢功能，資料可能有誤", inline=False)
             embed.add_field(name="整理", value="用法：!整理 <來源頻道/討論串ID> <摘要送出頻道ID>\n功能：整理對話內容並生成摘要", inline=False)
             embed.add_field(name="搜尋", value="用法：!搜尋 <查詢內容>\n功能：進行網路搜尋", inline=False)
             embed.add_field(name="重置記憶", value="用法：!重置記憶 / !確定重置 / !取消重置\n功能：重置長期記憶", inline=False)

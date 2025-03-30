@@ -187,8 +187,7 @@ def summarize_history(history):
     )
     return response.output_text
 
-
-
+pending_reset_confirmations = {}
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -312,11 +311,12 @@ async def on_message(message):
 
                 for attachment in message.attachments[:3]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
+                        image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
                         multimodal.append({
                             "type": "input_image",
-                            "image_url": attachment.url,
+                            "image_url": image_url,
                             "detail": "auto"
-                    })
+                        })
 
                 for attachment in message.attachments:
                     if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
@@ -452,6 +452,45 @@ async def on_message(message):
                 await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
+
+        elif cmd.startswith("重置記憶"):
+            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+            await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")
+            pending_reset_confirmations[user_id] = True
+
+        elif cmd.startswith("確定重置"):
+            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+            if pending_reset_confirmations.get(user_id):
+                pending_reset_confirmations.pop(user_id)
+                state = {
+                    "summary": "",
+                    "history": [],
+                    "token_accum": 0,
+                    "last_response_id": None,
+                    "thread_count": 0
+                }
+                save_user_memory(user_id, state)
+                await message.reply("✅ 記憶已重置")
+            else:
+                await message.reply("⚠️ 沒有待確認的重置請求。")
+
+        elif cmd.startswith("取消重置"):
+            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+            if pending_reset_confirmations.get(user_id):
+                pending_reset_confirmations.pop(user_id)
+                await message.reply("已取消記憶重置。")
+            else:
+                await message.reply("⚠️ 沒有待確認的重置請求。")
+        elif cmd.startswith("顯示記憶"):
+            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+            state = load_user_memory(user_id)
+            summary = state.get("summary", "")
+            if summary:
+                await message.reply(f"📖 目前長期記憶摘要：\n{summary}")
+            else:
+                await message.reply("目前尚無長期記憶摘要。")
+
+
                 
 # ===== 7. 啟動 Bot =====
 client.run(DISCORD_TOKEN)

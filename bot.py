@@ -350,13 +350,33 @@ async def on_message(message):
                 else:
                     model_used = "gpt-4o-mini"
 
-                response = client_ai.responses.create(
-                    model=model_used,  # 使用動態決定的模型
-                    input=input_prompt,
-                    temperature=1.2,
-                    previous_response_id=state["last_response_id"],
-                    store=True
-                )
+                try:
+                    response = client_ai.responses.create(
+                        model=model_used,
+                        input=input_prompt,
+                        temperature=1.2,
+                        previous_response_id=state["last_response_id"],
+                        store=True
+                    )
+                except Exception as e:
+                        # 如果錯誤與圖片網址無效有關，則移除圖片重新送出
+                    if "invalid_image_url" in str(e):
+                        await message.reply("⚠️ 發現有圖片網址已失效，將略過圖片繼續對話...")
+                        # 移除 input_prompt 中的圖片類型內容
+                        for prompt_item in input_prompt:
+                            if prompt_item["role"] == "user" and isinstance(prompt_item["content"], list):
+                                prompt_item["content"] = [item for item in prompt_item["content"] if item.get("type") != "input_image"]
+
+                        # 再次嘗試呼叫 API（忽略圖片）
+                        response = client_ai.responses.create(
+                            model=model_used,
+                         input=input_prompt,
+                            temperature=1.2,
+                            previous_response_id=state["last_response_id"],
+                            store=True
+                        )
+                    else:
+                        raise e  # 若不是圖片錯誤就繼續拋出
 
                 reply = response.output_text
                 state["last_response_id"] = response.id

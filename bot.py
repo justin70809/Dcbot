@@ -441,7 +441,7 @@ async def on_message(message):
             thinking_message = await message.reply("🔍 搜尋中...")
 
             try:
-                if is_usage_exceeded("搜尋", limit=20):
+                if is_usage_exceeded("搜尋", limit=5):
                     # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
                     api_key = os.getenv("GEMINI_API_KEY")
                     client_gemini = genai.Client(api_key=api_key)

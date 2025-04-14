@@ -348,7 +348,7 @@ async def on_message(message):
                 if count <= 50:
                     model_used = "gpt-4.1"
                 else:
-                    model_used = "gpt-4o-mini"
+                    model_used = "gpt-4.1-mini"
 
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型

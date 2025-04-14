@@ -346,7 +346,7 @@ async def on_message(message):
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
                 if count <= 50:
-                    model_used = "gpt-4o"
+                    model_used = "gpt-4.1"
                 else:
                     model_used = "gpt-4o-mini"
 
@@ -547,12 +547,12 @@ async def on_message(message):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
             embed.add_field(
                 name="🧠 推理",
-                value="`!推理 <內容>`\n使用 GPT-4o-mini 進行純文字推理，不含網路查詢。每 10 輪會自動總結記憶。",
+                value="`!推理 <內容>`\n使用 o3-mini-high 進行純文字推理，不含網路查詢。每 10 輪會自動總結記憶。",
                 inline=False
             )
             embed.add_field(
                 name="❓ 問",
-                value="`!問 <內容>`\n支援圖片與 PDF 附件的問答互動。模型自動切換 GPT-4o / GPT-4o-mini，無網路查詢功能。",
+                value="`!問 <內容>`\n支援圖片與 PDF 附件的問答互動。模型自動切換 GPT-4.1 / GPT-4o-mini，無網路查詢功能。",
                 inline=False
             )
             embed.add_field(

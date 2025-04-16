@@ -201,7 +201,7 @@ async def on_message(message):
                 # ✅ 若滿 10 輪，產生摘要、重置回合數與對話 ID
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4o",
+                        model="gpt-4.1",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -231,7 +231,7 @@ async def on_message(message):
                 })
 
                 # ✅ 開始新一輪（若 reset 則無 previous_id）
-                model_used="o3-mini"
+                model_used="o4-mini"
                 response = client_ai.responses.create(
                     model=model_used,
                     reasoning={"effort": "medium"},
@@ -283,7 +283,7 @@ async def on_message(message):
                 # ✅ 每第 10 輪觸發摘要
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4o",
+                        model="gpt-4.1",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",

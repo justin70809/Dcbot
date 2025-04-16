@@ -223,7 +223,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，以繁體為語言。"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，以台灣繁體為語言。"
                     })
                 input_prompt.append({
                     "role": "user",

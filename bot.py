@@ -449,7 +449,7 @@ async def on_message(message):
                     search_tool = Tool(google_search=GoogleSearch())
 
                     response = client_gemini.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-2.5-flash-preview-05-20",
                         contents=[{
                         "role": "user",
                         "parts": [{"text": query}]
@@ -463,7 +463,7 @@ async def on_message(message):
                     reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
                     await message.reply(reply_text)
                     count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash")
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash-preview-05-20")
 
                 else:
                     # ✅ 正常狀況：使用 Perplexity 查詢

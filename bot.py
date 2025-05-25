@@ -441,7 +441,7 @@ async def on_message(message):
             thinking_message = await message.reply("🔍 搜尋中...")
 
             try:
-                if is_usage_exceeded("搜尋", limit=5):
+                if is_usage_exceeded("搜尋", limit=0):
                     # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
                     api_key = os.getenv("GEMINI_API_KEY")
                     client_gemini = genai.Client(api_key=api_key)
@@ -449,7 +449,7 @@ async def on_message(message):
                     search_tool = Tool(google_search=GoogleSearch())
 
                     response = client_gemini.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-2.5-flash",
                         contents=[{
                         "role": "user",
                         "parts": [{"text": query}]
@@ -463,7 +463,7 @@ async def on_message(message):
                     reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
                     await message.reply(reply_text)
                     count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.0-flash")
+                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash")
 
                 else:
                     # ✅ 正常狀況：使用 Perplexity 查詢

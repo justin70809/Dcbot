@@ -400,14 +400,14 @@ async def on_message(message):
 
             await message.reply("🧹 正在整理內容，請稍後...")
             try:
-                messages_history = [msg async for msg in source_channel.history(limit=50)]
+                messages_history = [msg async for msg in source_channel.history(limit=500)]
                 conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
                 source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-                model_used="gpt-4o-mini"
+                model_used="gpt-4.1-mini"
                 response = client_ai.responses.create(
                     model=model_used,
                     input=[
-                        {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、易讀的摘要。"},
+                        {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、詳細完整的摘要。"},
                         {"role": "user", "content": conversation}
                     ]
                 )

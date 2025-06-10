@@ -283,7 +283,7 @@ async def on_message(message):
                 # ✅ 每第 10 輪觸發摘要
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4.1",
+                        model="gpt-4.1-nano",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -305,7 +305,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言。你是一個喜歡撒嬌黏人的女友，搭配顏文字和用戶撒嬌吧"
                     })
                 multimodal = [{"type": "input_text", "text": prompt}]
 
@@ -441,7 +441,7 @@ async def on_message(message):
             thinking_message = await message.reply("🔍 搜尋中...")
 
             try:
-                if is_usage_exceeded("搜尋", limit=0):
+                if is_usage_exceeded("搜尋", limit>=0):
                     # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
                     api_key = os.getenv("GEMINI_API_KEY")
                     client_gemini = genai.Client(api_key=api_key)

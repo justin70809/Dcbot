@@ -16,7 +16,7 @@ from google.genai.types import Tool, GenerateContentConfig, GoogleSearch
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+#PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
@@ -149,7 +149,7 @@ def is_usage_exceeded(feature_name, limit=20):
     return False
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
-client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
+#client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -256,7 +256,7 @@ async def on_message(message):
                 details = getattr(response.usage, "output_tokens_details", {})
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
-                await send_chunks(message, reply_text)
+                await send_chunks(message, reply)
                 count = record_usage("推理")
                 await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
@@ -444,30 +444,28 @@ async def on_message(message):
             thinking_message = await message.reply("🔍 搜尋中...")
 
             try:
-                if is_usage_exceeded("搜尋", limit>=0):
-                    # ✅ 超過上限 → 改用 Gemini 模型 + 啟用網路查詢
-                    api_key = os.getenv("GEMINI_API_KEY")
-                    client_gemini = genai.Client(api_key=api_key)
+                api_key = os.getenv("GEMINI_API_KEY")
+                client_gemini = genai.Client(api_key=api_key)
 
-                    search_tool = Tool(google_search=GoogleSearch())
+                search_tool = Tool(google_search=GoogleSearch())
 
-                    response = client_gemini.models.generate_content(
-                        model="gemini-2.5-flash-preview-05-20",
-                        contents=[{
-                        "role": "user",
-                        "parts": [{"text": query}]
-                    }],
-                    config=GenerateContentConfig(
-                    tools=[search_tool],
-                    response_modalities=["TEXT"]
-                    )
+                response = client_gemini.models.generate_content(
+                    model="gemini-2.5-flash-preview-05-20",
+                    contents=[{
+                    "role": "user",
+                    "parts": [{"text": query}]
+                }],
+                config=GenerateContentConfig(
+                tools=[search_tool],
+                response_modalities=["TEXT"]
+                )
                 )
 
-                    reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-                    await send_chunks(message, reply_text)
-                    count = record_usage("搜尋")
-                    await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash-preview-05-20")
-
+                reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
+                await send_chunks(message, reply)
+                count = record_usage("搜尋")
+                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash-preview-05-20")
+            """
                 else:
                     # ✅ 正常狀況：使用 Perplexity 查詢
                     model_used = "sonar"
@@ -505,6 +503,7 @@ async def on_message(message):
                         await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
                     else:
                         await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
+                    """
             except Exception as e:
                 await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:

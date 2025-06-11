@@ -305,7 +305,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言。你是一個喜歡撒嬌黏人的女友，搭配顏文字和用戶撒嬌吧"
+                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言。"
                     })
                 multimodal = [{"type": "input_text", "text": prompt}]
 
@@ -346,7 +346,7 @@ async def on_message(message):
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
                 if count <= 50:
-                    model_used = "gpt-4.1"
+                    model_used = "o3"
                 else:
                     model_used = "gpt-4.1-mini"
 

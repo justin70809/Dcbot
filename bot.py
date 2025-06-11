@@ -462,48 +462,48 @@ async def on_message(message):
                 )
 
                 reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-                await send_chunks(message, reply)
+                await send_chunks(message, reply_text)
                 count = record_usage("搜尋")
                 await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash-preview-05-20")
-            """
-                else:
+            
+                #else:
                     # ✅ 正常狀況：使用 Perplexity 查詢
-                    model_used = "sonar"
-                    payload = {
-                        "model": model_used,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內。"
-                            },
-                            {"role": "user", "content": query}
-                        ],
-                        "max_tokens": 1000,
-                        "temperature": 1.2,
-                        "top_p": 0.9,
-                        "top_k": 0,
-                        "stream": False,
-                        "presence_penalty": 0,
-                        "frequency_penalty": 1,
-                        " response_format": {},
-                        "web_search_options": {"search_context_size": "low"}
-                    }
-                    headers = {
-                        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                        "Content-Type": "application/json"
-                    }
-                    response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
+                   # model_used = "sonar"
+                    #payload = {
+                        #"model": model_used,
+                        #"messages": [
+                            #{
+                                #"role": "system",
+                                #"content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內。"
+                            #},
+                            #{"role": "user", "content": query}
+                        #],
+                        #"max_tokens": 1000,
+                        #"temperature": 1.2,
+                        #"top_p": 0.9,
+                        #"top_k": 0,
+                        #"stream": False,
+                        #"presence_penalty": 0,
+                        #"frequency_penalty": 1,
+                        #" response_format": {},
+                        #"web_search_options": {"search_context_size": "low"}
+                    #}
+                    #headers = {
+                        #"Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                        #"Content-Type": "application/json"
+                    #}
+                    #response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        reply = data["choices"][0]["message"]["content"]
-                        await send_chunks(message, reply_text)
+                    #if response.status_code == 200:
+                        #data = response.json()
+                        #reply = data["choices"][0]["message"]["content"]
+                        #await send_chunks(message, reply_text)
 
-                        count = record_usage("搜尋")
-                        await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
-                    else:
-                        await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
-                    """
+                        #count = record_usage("搜尋")
+                        #await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
+                    #else:
+                        #await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
+                    
             except Exception as e:
                 await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:

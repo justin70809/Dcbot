@@ -353,7 +353,6 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     input=input_prompt,
-                    temperature=1.2,
                     previous_response_id=state["last_response_id"],
                     store=True
                 )

@@ -170,6 +170,10 @@ ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 def count_tokens(text):
     return len(ENCODER.encode(text))
 
+async def send_chunks(message, text, chunk_size=2000):
+    """Send text in chunks not exceeding Discord's 2000 character limit."""
+    for i in range(0, len(text), chunk_size):
+        await message.reply(text[i:i + chunk_size])
 
 pending_reset_confirmations = {}
 @client.event
@@ -368,7 +372,7 @@ async def on_message(message):
                 details = getattr(response.usage, "output_tokens_details", {})
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
-                await message.reply(reply)
+                await send_chunks(message, reply)
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"

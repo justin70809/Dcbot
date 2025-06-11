@@ -305,7 +305,7 @@ async def on_message(message):
                 if state["summary"]:
                     input_prompt.append({
                         "role": "system",
-                        "content": f"這是前段摘要：{state['summary']}"+f"盡量控制回覆在 200 字以內，並且不需要重複問題，以繁體為語言。"
+                        "content": f"控制回覆在 1000 字以內，並且不需要重複問題，以繁體為語言。這是前段摘要：{state['summary']}"
                     })
                 multimodal = [{"type": "input_text", "text": prompt}]
 

@@ -235,7 +235,7 @@ async def on_message(message):
                 })
 
                 # ✅ 開始新一輪（若 reset 則無 previous_id）
-                model_used="o4-mini"
+                model_used="o3"
                 response = client_ai.responses.create(
                     model=model_used,
                     reasoning={"effort": "medium"},
@@ -350,7 +350,7 @@ async def on_message(message):
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
                 if count <= 50:
-                    model_used = "o3"
+                    model_used = "gpt-4.1"
                 else:
                     model_used = "gpt-4.1-mini"
 

@@ -449,7 +449,7 @@ async def on_message(message):
                 search_tool = Tool(google_search=GoogleSearch())
 
                 response = client_gemini.models.generate_content(
-                    model="gemini-2.5-flash-preview-05-20",
+                    model="gemini-2.5-flash",
                     contents=[{
                     "role": "user",
                     "parts": [{"text": query}]

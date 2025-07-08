@@ -238,7 +238,7 @@ async def on_message(message):
                 model_used="o3"
                 response = client_ai.responses.create(
                     model=model_used,
-                    max_completion_tokens=25000,
+                    max_completion_tokens=30000,
                     reasoning={"effort": "low"},
                     tools=[{"type": "web_search_preview"}],
                     input=input_prompt,

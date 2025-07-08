@@ -239,7 +239,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     max_completion_tokens=25000,
-                    reasoning={"effort": "medium"},
+                    reasoning={"effort": "low"},
                     tools=[{"type": "web_search_preview"}],
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],

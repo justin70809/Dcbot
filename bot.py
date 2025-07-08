@@ -239,6 +239,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     reasoning={"effort": "medium"},
+                    tools=[{"type": "web_search_preview"}],
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

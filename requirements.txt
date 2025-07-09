@@ -6,3 +6,4 @@ psycopg2-binary
 PyMuPDF
 tiktoken
 google-genai
+Pillow

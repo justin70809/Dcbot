@@ -364,7 +364,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                if count <= 20:
+                if count <= 10:
                     model_used = "gpt-4.1"
                     response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
@@ -374,14 +374,12 @@ async def on_message(message):
                         "user_location": {
                             "type": "approximate",
                             "country": "TW",
-                            "city": "Taipei",
                             "timezone": "Asia/Taipei"
                         },
-                        "search_context_size": "medium"
                         },
                         {"type": "image_generation",
                          "size": "auto",
-                         "quality": "medium",
+                         "quality": "high",
                          "background": "auto"
                         }
                     ],
@@ -390,7 +388,7 @@ async def on_message(message):
                     store=True
                 )
                 else:
-                    model_used = "gpt-4.1-mini"
+                    model_used = "gpt-4.1"
                     response = client_ai.responses.create(
                         model=model_used,  # 使用動態決定的模型
                         tools=[
@@ -399,16 +397,9 @@ async def on_message(message):
                             "user_location": {
                                 "type": "approximate",
                                 "country": "TW",
-                                "city": "Taipei",
                                 "timezone": "Asia/Taipei"
                             },
-                            "search_context_size": "low"
                             },
-                            {"type": "image_generation",
-                            "size": "auto",
-                            "quality": "low",
-                            "background": "auto"
-                            }
                         ],
                         input=input_prompt,
                         previous_response_id=state["last_response_id"],

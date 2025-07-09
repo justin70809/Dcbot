@@ -364,12 +364,9 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                if count <= 100:
+                if count <= 20:
                     model_used = "gpt-4.1"
-                else:
-                    model_used = "gpt-4.1-mini"
-
-                response = client_ai.responses.create(
+                    response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[
                         {
@@ -384,7 +381,7 @@ async def on_message(message):
                         },
                         {"type": "image_generation",
                          "size": "auto",
-                         "quality": "auto",
+                         "quality": "medium",
                          "background": "auto"
                         }
                     ],
@@ -392,6 +389,31 @@ async def on_message(message):
                     previous_response_id=state["last_response_id"],
                     store=True
                 )
+                else:
+                    model_used = "gpt-4.1-mini"
+                    response = client_ai.responses.create(
+                        model=model_used,  # 使用動態決定的模型
+                        tools=[
+                            {
+                            "type": "web_search_preview",
+                            "user_location": {
+                                "type": "approximate",
+                                "country": "TW",
+                                "city": "Taipei",
+                                "timezone": "Asia/Taipei"
+                            },
+                            "search_context_size": "low"
+                            },
+                            {"type": "image_generation",
+                            "size": "auto",
+                            "quality": "low",
+                            "background": "auto"
+                            }
+                        ],
+                        input=input_prompt,
+                        previous_response_id=state["last_response_id"],
+                        store=True
+                    )
                 
                 replytext = response.output_text
                 replyimages = [

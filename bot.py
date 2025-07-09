@@ -580,13 +580,12 @@ async def on_message(message):
                         numberOfImages=1
                     )
                 )
-                images = resp[0] if isinstance(resp, tuple) else resp
-                for idx, gen_img in enumerate(images, 1):
-                    buf = BytesIO(gen_img.bytes_data)
-                    buf.seek(0)
-                    await message.reply(
-                        file=discord.File(fp=buf, filename=f"generated_{idx}.png")
-                    )
+                gen_img = resp.generated_images[0]
+                buf = BytesIO(gen_img.image.image_bytes)
+                buf.seek(0)
+                await message.reply(
+                    file=discord.File(fp=buf, filename=f"generated.png")
+                )
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:

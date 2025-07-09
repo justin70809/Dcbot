@@ -223,7 +223,7 @@ async def on_message(message):
                     state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
-                    await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
+                    await message.channel.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
 
                 # ✅ 準備新的 prompt（含摘要）
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
@@ -317,7 +317,7 @@ async def on_message(message):
                     state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
-                    await message.channel.send("📝 對話已達 5 輪，已自動總結並重新開始。")
+                    await message.channel.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
 
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
@@ -415,7 +415,7 @@ async def on_message(message):
                     buf = io.BytesIO(base64.b64decode(b64))
                     buf.seek(0)
                     # 2. 回傳到 Discord
-                    await message.channel.send(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+                    await message.channel.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
 
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"

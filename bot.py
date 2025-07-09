@@ -570,22 +570,28 @@ async def on_message(message):
         # --- 功能 5：生成圖像 ---
         elif cmd.startswith("圖片 "):
             query = cmd[2:].strip()
-            thinking_message = await message.reply("生成中...")
-            api_key = os.getenv("GEMINI_API_KEY")
-            client_gemini = genai.Client(api_key=api_key)
-            response = client_gemini.models.generate_images(
-                model="imagen-4.0-generate-preview-06-06",
-                contents=[{
-                "role": "user",
-                "parts": [{query}]
-            }],
-                config=types.GenerateImagesConfig(
-                    numberOfImages=2,
-                    person_generation="allow_all"
+            thinking = await message.reply("生成中…")
+            try:
+                client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                resp = client.models.generate_images(
+                    model="imagen-4.0-generate-preview-06-06",
+                    contents=[{"role": "user", "parts": [query]}],
+                    config=types.GenerateImagesConfig(
+                        numberOfImages=2,
+                        person_generation="allow_all"
+                    )
                 )
-            )
-            for generated_image in response.generated_images:
-                await message.reply(file=discord.File(io.BytesIO(generated_image.image), filename="generated_image.png"))
+
+                for idx, g in enumerate(resp.generated_images, 1):
+                    buf = BytesIO(g.image)
+                    buf.seek(0)  
+                    await message.reply(
+                        file=discord.File(fp=buf, filename=f"generated_{idx}.png")
+                    )
+            except Exception as e:
+                await message.reply(f"出現錯誤：{e}")
+            finally:
+                await thinking.delete()
             await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-generate-preview-06-06")
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"

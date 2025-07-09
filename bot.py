@@ -577,16 +577,26 @@ async def on_message(message):
                     model="imagen-4.0-generate-preview-06-06",
                     prompt=query,
                     config=types.GenerateImagesConfig(
-                        numberOfImages=2
+                        numberOfImages=1
                     )
                 )
 
                 for idx, g in enumerate(resp.generated_images, 1):
-                    buf = BytesIO(g.image)
-                    buf.seek(0)  
+                    # 新版 SDK 可能回傳 Pillow Image，也可能回傳 bytes
+                    img_obj = getattr(g, "image", g)  # 先取 g.image，若無則 g 本身
+
+                    if isinstance(img_obj, Image.Image):          # ← 遇到 Pillow 物件
+                        buf = BytesIO()
+                        img_obj.save(buf, format="PNG")           # 存進緩衝區
+                    elif isinstance(img_obj, (bytes, bytearray)): # ← 遇到已是 bytes
+                        buf = BytesIO(img_obj)
+                    else:
+                        raise TypeError("Unsupported image type") # 仍有異常，回報類型
+
+                    buf.seek(0)                                   # 指標歸零
                     await message.reply(
                         file=discord.File(fp=buf, filename=f"generated_{idx}.png")
-                    )
+                    )  # 回傳圖片檔案
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:

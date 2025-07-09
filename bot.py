@@ -11,6 +11,8 @@ import tiktoken
 from google import genai
 from google.genai import types
 from google.genai.types import Tool, GenerateContentConfig, GoogleSearch
+from PIL import Image
+from io import BytesIO
 from datetime import datetime
 from datetime import date
 from zoneinfo import ZoneInfo
@@ -364,7 +366,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                if count <= 10:
+                if count <= 0:
                     model_used = "gpt-4.1"
                     response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
@@ -507,7 +509,7 @@ async def on_message(message):
                 search_tool = Tool(google_search=GoogleSearch())
                 now = datetime.now(ZoneInfo("Asia/Taipei"))
                 response = client_gemini.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model="gemini-2.5-flash",
                     contents=[{
                     "role": "user",
                     "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+query}]
@@ -521,7 +523,7 @@ async def on_message(message):
                 reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
                 await send_chunks(message, reply_text)
                 count = record_usage("搜尋")
-                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-pro")
+                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash")
             
                 #else:
                     # ✅ 正常狀況：使用 Perplexity 查詢
@@ -565,7 +567,26 @@ async def on_message(message):
                 await message.reply(f"❌ 搜尋時發生錯誤: {e}")
             finally:
                 await thinking_message.delete()
-
+        # --- 功能 5：生成圖像 ---
+        elif cmd.startswith("圖片 "):
+            query = cmd[2:].strip()
+            thinking_message = await message.reply("生成中...")
+            api_key = os.getenv("GEMINI_API_KEY")
+            client_gemini = genai.Client(api_key=api_key)
+            response = client_gemini.models.generate_images(
+                model="imagen-4.0-generate-preview-06-06",
+                contents=[{
+                "role": "user",
+                "parts": [{query}]
+            }],
+                config=types.GenerateImagesConfig(
+                    numberOfImages=2,
+                    person_generation="allow_all"
+                )
+            )
+            for generated_image in response.generated_images:
+                await message.reply(file=discord.File(io.BytesIO(generated_image.image), filename="generated_image.png"))
+            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-generate-preview-06-06")
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")

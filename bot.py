@@ -581,7 +581,7 @@ async def on_message(message):
                     )
                 )
 
-                for idx, gen_img in enumerate(resp.images, 1):
+                for idx, gen_img in enumerate(resp, 1):
                     buf = BytesIO(gen_img.bytes_data)
                     buf.seek(0)
                     await message.reply(

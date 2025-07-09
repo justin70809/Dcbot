@@ -300,14 +300,14 @@ async def on_message(message):
                 state["thread_count"] += 1
 
                 # ✅ 每第 10 輪觸發摘要
-                if state["thread_count"] >= 10 and state["last_response_id"]:
+                if state["thread_count"] >= 5 and state["last_response_id"]:
                     response = client_ai.responses.create(
                         model="gpt-4.1-nano",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
                             "content": (
-                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在500字以內，"
+                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在100字以內，"
                                 "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
                                 "讓 AI 能以此為基礎繼續與使用者溝通。"
                             )
@@ -317,7 +317,7 @@ async def on_message(message):
                     state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
-                    await message.channel.send("📝 對話已達 10 輪，已自動總結並重新開始。")
+                    await message.channel.send("📝 對話已達 5 輪，已自動總結並重新開始。")
 
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
@@ -384,7 +384,7 @@ async def on_message(message):
                         },
                         {"type": "image_generation",
                          "size": "auto",
-                         "quality": "medium",
+                         "quality": "auto",
                          "background": "auto"
                         }
                     ],

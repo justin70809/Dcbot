@@ -371,7 +371,8 @@ async def on_message(message):
 
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
-                    tools=[{
+                    tools=[
+                        {
                         "type": "web_search_preview",
                         "user_location": {
                             "type": "approximate",
@@ -380,7 +381,14 @@ async def on_message(message):
                             "timezone": "Asia/Taipei"
                         },
                         "search_context_size": "medium"
-                    }],
+                        },
+                        {"type": "image_generation",
+                         "size": "auto",
+                         "quality": "medium",
+                         "format": "png",
+                         "background": "auto"
+                        }
+                    ],
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

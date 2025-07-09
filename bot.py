@@ -581,19 +581,12 @@ async def on_message(message):
                     )
                 )
 
-                for idx, img_obj in enumerate(resp.generated_images, 1):
-                    buf = BytesIO()
-
-                    # ⚖️ 判別圖像型態
-                    if isinstance(img_obj, Image.Image):
-                        img_obj.save(buf, format="PNG")
-                    elif isinstance(img_obj, (bytes, bytearray)):
-                        buf.write(img_obj)
-                    else:
-                        raise TypeError(f"Unsupported image type: {type(img_obj)}")
-
+                for idx, gen_img in enumerate(resp.images, 1):
+                    buf = BytesIO(gen_img.bytes_data)
                     buf.seek(0)
-                    await message.reply(file=discord.File(fp=buf, filename=f"generated_{idx}.png"))
+                    await message.reply(
+                        file=discord.File(fp=buf, filename=f"generated_{idx}.png")
+                    )
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:

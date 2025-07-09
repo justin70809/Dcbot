@@ -385,7 +385,6 @@ async def on_message(message):
                         {"type": "image_generation",
                          "size": "auto",
                          "quality": "medium",
-                         "format": "png",
                          "background": "auto"
                         }
                     ],

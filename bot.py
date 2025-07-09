@@ -572,8 +572,8 @@ async def on_message(message):
             query = cmd[2:].strip()
             thinking = await message.reply("生成中…")
             try:
-                client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-                resp = client.models.generate_images(
+                gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                resp = gemini_client.models.generate_images(
                     model="imagen-4.0-generate-preview-06-06",
                     contents=[{"role": "user", "parts": [query]}],
                     config=types.GenerateImagesConfig(
@@ -592,6 +592,7 @@ async def on_message(message):
                 await message.reply(f"出現錯誤：{e}")
             finally:
                 await thinking.delete()
+            count = record_usage("圖片")
             await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-generate-preview-06-06")
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"

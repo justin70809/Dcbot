@@ -360,8 +360,10 @@ async def on_message(message):
                     tools=[{
                         "type": "web_search_preview",
                         "user_location": {
+                            "type": "approximate",
+                            "country": "TW",
                             "city": "Taipei",
-                            "country": "TW"
+                            "timezone": "Asia/Taipei"
                         }
                     }],
                     input=input_prompt,

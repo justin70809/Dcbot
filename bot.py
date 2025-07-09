@@ -239,7 +239,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     max_output_tokens=4000,
-                    reasoning={"effort": "low"},
+                    reasoning={"effort": "medium"},
                     tools=[{"type": "web_search_preview"}],
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
@@ -350,14 +350,20 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                if count <= 50:
+                if count <= 100:
                     model_used = "gpt-4.1"
                 else:
                     model_used = "gpt-4.1-mini"
 
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
-                    tools=[{"type": "web_search_preview"}],
+                    tools=[{
+                        "type": "web_search_preview",
+                        "user_location": {
+                            "city": "Taipei",
+                            "country": "TW"
+                        }
+                    }],
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     store=True

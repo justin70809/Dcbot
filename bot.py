@@ -577,8 +577,7 @@ async def on_message(message):
                     model="imagen-4.0-generate-preview-06-06",
                     prompt=query,
                     config=types.GenerateImagesConfig(
-                        numberOfImages=2,
-                        person_generation="allow_all"
+                        numberOfImages=2
                     )
                 )
 

@@ -153,31 +153,6 @@ def is_usage_exceeded(feature_name, limit=20):
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
-async def send_from_output(message, blocks):
-    """
-    blocks = response.output (list)  
-    先把所有 text block 串成一段文字回 Discord，  
-    然後依序把 image_generation_call 的 base64 轉檔回傳。
-    """
-    text_parts, images_b64 = [], []
-
-    for blk in blocks:
-        if blk.type == "text":
-            text_parts.append(blk.text)
-        elif blk.type == "image_generation_call":
-            images_b64.append(blk.result)
-        # 其他類型（如 web_search_call）可視情況擴充
-
-    # 1) 回文字（若沒有文字也略過）
-    if text_parts:
-        full_text = "\n".join(text_parts)
-        await send_chunks(message, full_text)
-
-    # 2) 回圖片
-    for idx, b64 in enumerate(images_b64):
-        buf = io.BytesIO(base64.b64decode(b64))
-        buf.seek(0)
-        await message.channel.send(file=discord.File(buf, f"ai_image_{idx+1}.png"))
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -230,7 +205,7 @@ async def on_message(message):
                 # ✅ 每次對話計數 +1
                 state["thread_count"] += 1
 
-                # ✅ 若滿 10 輪，產生摘要、重置回合數與對話 ID
+                # ✅ 若滿 5 輪，產生摘要、重置回合數與對話 ID
                 if state["thread_count"] >= 5 and state["last_response_id"]:
                     response = client_ai.responses.create(
                         model="gpt-4.1",
@@ -418,7 +393,12 @@ async def on_message(message):
                     store=True
                 )
                 
-                reply = response.output
+                replytext = response.output_text
+                replyimages = [
+                    blk["result"] if isinstance(blk, dict) else blk.result
+                    for blk in response.output
+                    if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
+                ]
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 input_tokens = response.usage.input_tokens
@@ -429,7 +409,14 @@ async def on_message(message):
                 details = getattr(response.usage, "output_tokens_details", {})
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
-                await send_from_output(message, reply)
+                await send_chunks(message, replytext)
+                for idx, b64 in enumerate(replyimages):
+                    # 1. 先解碼
+                    buf = io.BytesIO(base64.b64decode(b64))
+                    buf.seek(0)
+                    # 2. 回傳到 Discord
+                    await message.channel.send(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"

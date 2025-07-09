@@ -580,8 +580,8 @@ async def on_message(message):
                         numberOfImages=1
                     )
                 )
-
-                for idx, gen_img in enumerate(resp, 1):
+                images = resp[0] if isinstance(resp, tuple) else resp
+                for idx, gen_img in enumerate(images, 1):
                     buf = BytesIO(gen_img.bytes_data)
                     buf.seek(0)
                     await message.reply(

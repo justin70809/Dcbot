@@ -575,7 +575,7 @@ async def on_message(message):
                 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
                 resp = gemini_client.models.generate_images(
                     model="imagen-4.0-generate-preview-06-06",
-                    contents=[{"role": "user", "parts": [query]}],
+                    prompt=query,
                     config=types.GenerateImagesConfig(
                         numberOfImages=2,
                         person_generation="allow_all"

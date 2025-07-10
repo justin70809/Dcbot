@@ -159,7 +159,6 @@ client_ai = OpenAI(api_key=OPENAI_API_KEY)
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
 intents.message_content = True
-intents.attachments = True
 intents.messages = True
 intents.guilds = True
 client = discord.Client(intents=intents)

@@ -540,7 +540,7 @@ async def on_message(message):
             thinking = await message.reply("生成中…")
             try:
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
-                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")}]
+                multimodal = [{"type": "input_text", "text": query+Time.strftime("%Y-%m-%d %H:%M:%S")}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
@@ -573,7 +573,6 @@ async def on_message(message):
                     ],
                     tool_choice={"type": "image_generation"},
                     input=input_prompt,
-                    previous_response_id=state["last_response_id"],
                 )
                 replytext = response.output_text
                 await send_chunks(message, replytext)
@@ -592,7 +591,6 @@ async def on_message(message):
                 await message.reply(f"出現錯誤：{e}")
             finally:
                 await thinking.delete()
-            count = record_usage("圖片")
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
             total_tokens = response.usage.total_tokens

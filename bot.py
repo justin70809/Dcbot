@@ -568,7 +568,6 @@ async def on_message(message):
                         },
                         {"type": "image_generation",
                          "quality": "high",
-                         "format":"jpeg"
                         }
                     ],
                     tool_choice={"type": "image_generation"},
@@ -586,7 +585,7 @@ async def on_message(message):
                     buf = io.BytesIO(base64.b64decode(b64))
                     buf.seek(0)
                     # 2. 回傳到 Discord
-                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.jpeg"))
+                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:

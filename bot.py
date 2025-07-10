@@ -557,8 +557,8 @@ async def on_message(message):
                 #await message.reply(f"出現錯誤：{e}")
             #finally:
                 #await thinking.delete()
-            count = record_usage("圖片")
-            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-ultra-generate-preview-06-06")
+            #count = record_usage("圖片")
+            #await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-ultra-generate-preview-06-06")
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")

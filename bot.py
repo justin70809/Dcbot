@@ -411,11 +411,11 @@ async def on_message(message):
                 )
                 
                 replytext = response.output_text
-                replyimages = [
-                    blk["result"] if isinstance(blk, dict) else blk.result
-                    for blk in response.output
-                    if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
-                ]
+                #replyimages = [
+                    #blk["result"] if isinstance(blk, dict) else blk.result
+                    #for blk in response.output
+                    #if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
+                #]
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 input_tokens = response.usage.input_tokens
@@ -427,12 +427,12 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                for idx, b64 in enumerate(replyimages):
+                #for idx, b64 in enumerate(replyimages):
                     # 1. 先解碼
-                    buf = io.BytesIO(base64.b64decode(b64))
-                    buf.seek(0)
+                    #buf = io.BytesIO(base64.b64decode(b64))
+                    #buf.seek(0)
                     # 2. 回傳到 Discord
-                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+                    #await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
 
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"

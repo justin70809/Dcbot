@@ -539,25 +539,64 @@ async def on_message(message):
             query = cmd[2:].strip()
             thinking = await message.reply("生成中…")
             try:
-                resp = client.images.generate(
-                    model="gpt-image-1",
-                    prompt=query,
-                    quality="high",
-                    size="1024x1024"
+                Time = datetime.now(ZoneInfo("Asia/Taipei"))
+                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")}]
+                for attachment in message.attachments[:10]:
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
+                        multimodal.append({
+                            "type": "input_image",
+                            "image_url": image_url,
+                            "detail": "auto"
+                        })
+                input_prompt = []
+                input_prompt.append({
+                    "role": "user",
+                    "content": multimodal
+                })
+                count = record_usage("圖片")  # 這裡同時也會累加一次使用次數
+                model_used = "gpt-4.1"
+                response = client_ai.responses.create(
+                    model=model_used,  # 使用動態決定的模型
+                    tools=[
+                        {
+                        "type": "web_search_preview",
+                        "user_location": {
+                            "type": "approximate",
+                            "country": "TW",
+                            "timezone": "Asia/Taipei"
+                        },
+                        },
+                        {"type": "image_generation",
+                         "quality": "high"
+                        }
+                    ],
+                    tool_choice={"type": "image_generation"},
+                    input=input_prompt,
+                    previous_response_id=state["last_response_id"],
                 )
-                #1. 先解碼
-                image_bytes = base64.b64decode(resp.data[0].b64_json)
-                #2. 回傳到 Discord
-                await message.reply(file=discord.File(image_bytes, f"ai_image.png"))
+                replytext = response.output_text
+                await send_chunks(message, replytext)
+                replyimages = [
+                    blk["result"] if isinstance(blk, dict) else blk.result
+                    for blk in response.output
+                    if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
+                ]
+                for idx, b64 in enumerate(replyimages):
+                    # 1. 先解碼
+                    buf = io.BytesIO(base64.b64decode(b64))
+                    buf.seek(0)
+                    # 2. 回傳到 Discord
+                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:
                 await thinking.delete()
             count = record_usage("圖片")
-            input_tokens = resp.usage.input_tokens
-            output_tokens = resp.usage.output_tokens
-            total_tokens = resp.usage.total_tokens
-            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1"
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+            total_tokens = response.usage.total_tokens
+            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1+gpt-4.1"
                                 f"📊 token 使用量：\n"
                                 f"- 輸入 tokens: {input_tokens}\n"
                                 f"- 回應 tokens: {output_tokens}\n"

@@ -539,8 +539,7 @@ async def on_message(message):
             query = cmd[2:].strip()
             thinking = await message.reply("生成中…")
             try:
-                Time = datetime.now(ZoneInfo("Asia/Taipei"))
-                multimodal = [{"type": "input_text", "text": query+Time.strftime("%Y-%m-%d %H:%M:%S")}]
+                multimodal = [{"type": "input_text", "text": query+"我的語言是繁體"}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url

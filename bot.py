@@ -126,7 +126,7 @@ def init_db():
 def record_usage(feature_name):
     conn = get_db_connection()
     cur = conn.cursor()
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
     cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
     row = cur.fetchone()
     if row:
@@ -567,7 +567,8 @@ async def on_message(message):
                         },
                         },
                         {"type": "image_generation",
-                         "quality": "high"
+                         "quality": "high",
+                         "format":"jpeg"
                         }
                     ],
                     tool_choice={"type": "image_generation"},
@@ -585,7 +586,7 @@ async def on_message(message):
                     buf = io.BytesIO(base64.b64decode(b64))
                     buf.seek(0)
                     # 2. 回傳到 Discord
-                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.jpeg"))
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:

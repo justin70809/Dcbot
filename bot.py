@@ -535,30 +535,34 @@ async def on_message(message):
             finally:
                 await thinking_message.delete()
         # --- 功能 5：生成圖像 ---
-        #elif cmd.startswith("圖片 "):
-            #query = cmd[2:].strip()
-            #thinking = await message.reply("生成中…")
-            #try:
-                #gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-                #resp = gemini_client.models.generate_images(
-                    #model="imagen-4.0-ultra-generate-preview-06-06",
-                    #prompt=query,
-                    #config=types.GenerateImagesConfig(
-                        #numberOfImages=1
-                    #)
-                #)
-                #gen_img = resp.generated_images[0]
-                #buf = BytesIO(gen_img.image.image_bytes)
-                #buf.seek(0)
-                #await message.reply(
-                    #file=discord.File(fp=buf, filename=f"generated.png")
-                #)
-            #except Exception as e:
-                #await message.reply(f"出現錯誤：{e}")
-            #finally:
-                #await thinking.delete()
-            #count = record_usage("圖片")
-            #await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-ultra-generate-preview-06-06")
+        elif cmd.startswith("圖片 "):
+            query = cmd[2:].strip()
+            thinking = await message.reply("生成中…")
+            try:
+                resp = client.images.create(
+                    model="gpt-image-1",
+                    prompt=query,
+                    quality="high",
+                    size="1024x1024"
+                )
+                #1. 先解碼
+                image_bytes = base64.b64decode(resp.data[0].b64_json)
+                #2. 回傳到 Discord
+                await message.reply(file=discord.File(image_bytes, f"ai_image.png"))
+            except Exception as e:
+                await message.reply(f"出現錯誤：{e}")
+            finally:
+                await thinking.delete()
+            count = record_usage("圖片")
+            input_tokens = resp.usage.input_tokens
+            output_tokens = resp.usage.output_tokens
+            total_tokens = resp.usage.total_tokens
+            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1"
+                                f"📊 token 使用量：\n"
+                                f"- 輸入 tokens: {input_tokens}\n"
+                                f"- 回應 tokens: {output_tokens}\n"
+                                f"- 總 token: {total_tokens}"
+                                )        
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")

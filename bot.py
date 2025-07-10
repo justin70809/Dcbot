@@ -230,14 +230,9 @@ async def on_message(message):
                 # ✅ 準備新的 prompt（含摘要）
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                if state["summary"]:
-                    input_prompt.append({
-                        "role": "system",
-                    "content":Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"
-                    })
                 input_prompt.append({
                     "role": "user",
-                    "content": prompt
+                    "content": Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"+prompt
                 })
 
                 # ✅ 開始新一輪（若 reset 則無 previous_id）
@@ -301,7 +296,7 @@ async def on_message(message):
             finally:
                 await thinking_message.delete()
 
-        # --- 功能 2：問答（含圖片與 PDF） ---
+        # --- 功能 2：問答（含圖片） ---
         elif cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
@@ -337,13 +332,8 @@ async def on_message(message):
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                input_prompt.append({
-                    "role": "system",
-                    "content":Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"
-                })
-                multimodal = [{"type": "input_text", "text": prompt}]
-
-                for attachment in message.attachments[:3]:
+                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"}]
+                for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
                         multimodal.append({
@@ -351,29 +341,6 @@ async def on_message(message):
                             "image_url": image_url,
                             "detail": "auto"
                         })
-
-                for attachment in message.attachments:
-                    if attachment.filename.endswith(".pdf") and attachment.size < 30 * 1024 * 1024:
-                        pdf_bytes = await attachment.read()
-                        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                        pdf_text = ""
-                        for page_num in range(min(5, len(doc))):
-                            page = doc.load_page(page_num)
-                            pdf_text += page.get_text()
-
-                        multimodal.append({
-                            "type": "input_text",
-                            "text": f"[前5頁PDF內容摘要開始]\n{pdf_text[:3000]}\n[摘要結束]"
-                        })
-
-                        encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-                        multimodal.append({
-                            "type": "input_file",
-                            "filename": attachment.filename,
-                            "file_data": f"data:application/pdf;base64,{encoded_pdf}",
-                            "file_url": attachment.proxy_url
-                        })
-
                 input_prompt.append({
                     "role": "user",
                     "content": multimodal

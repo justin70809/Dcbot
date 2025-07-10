@@ -145,7 +145,7 @@ def record_usage(feature_name):
 def is_usage_exceeded(feature_name, limit=20):
     conn = get_db_connection()
     cur = conn.cursor()
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
     cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
     row = cur.fetchone()
     db_pool.putconn(conn)
@@ -536,6 +536,9 @@ async def on_message(message):
                 await thinking_message.delete()
         # --- 功能 5：生成圖像 ---
         elif cmd.startswith("圖片 "):
+            if is_usage_exceeded("圖片", limit=15):
+                await message.reply("⚠️ 指揮官，今日圖片功能已達 15 次上限，請明日再試。")
+                return  # 直接收子離場
             query = cmd[2:].strip()
             thinking = await message.reply("生成中…")
             try:

@@ -539,7 +539,7 @@ async def on_message(message):
             query = cmd[2:].strip()
             thinking = await message.reply("生成中…")
             try:
-                resp = client.images.create(
+                resp = client.images.generate(
                     model="gpt-image-1",
                     prompt=query,
                     quality="high",

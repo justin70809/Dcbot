@@ -535,28 +535,28 @@ async def on_message(message):
             finally:
                 await thinking_message.delete()
         # --- 功能 5：生成圖像 ---
-        elif cmd.startswith("圖片 "):
-            query = cmd[2:].strip()
-            thinking = await message.reply("生成中…")
-            try:
-                gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-                resp = gemini_client.models.generate_images(
-                    model="imagen-4.0-ultra-generate-preview-06-06",
-                    prompt=query,
-                    config=types.GenerateImagesConfig(
-                        numberOfImages=1
-                    )
-                )
-                gen_img = resp.generated_images[0]
-                buf = BytesIO(gen_img.image.image_bytes)
-                buf.seek(0)
-                await message.reply(
-                    file=discord.File(fp=buf, filename=f"generated.png")
-                )
-            except Exception as e:
-                await message.reply(f"出現錯誤：{e}")
-            finally:
-                await thinking.delete()
+        #elif cmd.startswith("圖片 "):
+            #query = cmd[2:].strip()
+            #thinking = await message.reply("生成中…")
+            #try:
+                #gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                #resp = gemini_client.models.generate_images(
+                    #model="imagen-4.0-ultra-generate-preview-06-06",
+                    #prompt=query,
+                    #config=types.GenerateImagesConfig(
+                        #numberOfImages=1
+                    #)
+                #)
+                #gen_img = resp.generated_images[0]
+                #buf = BytesIO(gen_img.image.image_bytes)
+                #buf.seek(0)
+                #await message.reply(
+                    #file=discord.File(fp=buf, filename=f"generated.png")
+                #)
+            #except Exception as e:
+                #await message.reply(f"出現錯誤：{e}")
+            #finally:
+                #await thinking.delete()
             count = record_usage("圖片")
             await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：imagen-4.0-ultra-generate-preview-06-06")
         elif cmd.startswith("重置記憶"):

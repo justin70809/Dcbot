@@ -481,7 +481,7 @@ async def on_message(message):
                     model="gemini-2.5-flash",
                     contents=[{
                     "role": "user",
-                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+query}]
+                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答"+query}]
                 }],
                 config=GenerateContentConfig(
                 tools=[search_tool],

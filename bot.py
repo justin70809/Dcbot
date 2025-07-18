@@ -240,7 +240,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     max_output_tokens=4000,
-                    reasoning={"effort": "medium"},
+                    reasoning={"effort": "high"},
                     tools=[{
                         "type": "web_search_preview",
                         "user_location": {
@@ -338,7 +338,7 @@ async def on_message(message):
                             "type": "input_image",
                             "image_url": image_url,
                             "detail": "auto"
-                        })
+                        }) 
                 input_prompt.append({
                     "role": "user",
                     "content": multimodal

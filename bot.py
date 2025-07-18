@@ -240,7 +240,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     max_output_tokens=4000,
-                    reasoning={"effort": "high"},
+                    reasoning={"effort": "medium"},
                     tools=[{
                         "type": "web_search_preview",
                         "user_location": {

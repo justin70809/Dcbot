@@ -222,7 +222,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = response
+                    state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -240,7 +240,7 @@ async def on_message(message):
                 response = client_ai.responses.create(
                     model=model_used,
                     max_output_tokens=4000,
-                    reasoning={"effort": "high"},
+                    reasoning={"effort": "medium"},
                     tools=[{
                         "type": "web_search_preview",
                         "user_location": {
@@ -267,7 +267,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = response
+                reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage
@@ -370,7 +370,6 @@ async def on_message(message):
                     """,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
-                    reasoning={"effort": "medium"},
                     store=True
                 )
                 

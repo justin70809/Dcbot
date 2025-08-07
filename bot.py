@@ -136,8 +136,6 @@ def get_response_text(resp) -> str:
         return ot if isinstance(ot, str) else getattr(ot, "text", str(ot))
 
     # --- 案例 B：須手動抽取 ---
-    if resp.output is None:
-        return ""  # 或擲出錯誤、記錄日誌，依指揮官之意。
     text_parts = []
     for msg in resp.output:
         content = msg["content"] if isinstance(msg, dict) else msg.content
@@ -373,7 +371,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-5"
+                model_used = "gpt-4.1"
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[

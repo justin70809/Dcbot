@@ -123,23 +123,32 @@ def init_db():
     conn.commit()
     db_pool.putconn(conn)
 # ===== OpenAI Responses 共用工具 =====
-def get_response_text(resp):
+# ===== OpenAI Responses 共用工具 =====
+def get_response_text(resp) -> str:
     """
-    從 Responses API 回傳物件擷取純文字：
-    1. 若 SDK 仍提供 resp.output_text → 直接回傳
-    2. 否則遍歷 resp.output 內的各 block，串接 type==output_text 的 text
+    萃取純文字：
+    1. 若 resp.output_text 存在 → 可能是 str 也可能是 ResponseOutputText 物件
+    2. 否則遍歷 resp.output，每遇到 type == "output_text" 的區塊就拼接文字
     """
+    # --- 案例 A：SDK 仍提供捷徑 ---
     if hasattr(resp, "output_text"):
-        return resp.output_text
+        ot = resp.output_text
+        return ot if isinstance(ot, str) else getattr(ot, "text", str(ot))
 
+    # --- 案例 B：須手動抽取 ---
     text_parts = []
-    for msg in resp.output:                              # 每段 assistant 訊息
+    for msg in resp.output:
         content = msg["content"] if isinstance(msg, dict) else msg.content
-        for blk in content:                              # 每個 block
-            blk_type = blk.get("type", getattr(blk, "type", None))
-            if blk_type == "output_text":
-                text_parts.append(blk.get("text", getattr(blk, "text", "")))
+        for blk in content:
+            # 先分辨是 dict 還是物件；避免對物件呼叫 .get()
+            if isinstance(blk, dict):
+                if blk.get("type") == "output_text":
+                    text_parts.append(blk.get("text", ""))
+            else:
+                if getattr(blk, "type", None) == "output_text":
+                    text_parts.append(getattr(blk, "text", ""))
     return "".join(text_parts)
+
 
 def record_usage(feature_name):
     conn = get_db_connection()

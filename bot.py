@@ -370,10 +370,11 @@ async def on_message(message):
                     """,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
+                    reasoning={"effort": "medium"},
                     store=True
                 )
                 
-                replytext = response
+                replytext = response.output_text
                 #replyimages = [
                     #blk["result"] if isinstance(blk, dict) else blk.result
                     #for blk in response.output

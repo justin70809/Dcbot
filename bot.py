@@ -122,6 +122,24 @@ def init_db():
 
     conn.commit()
     db_pool.putconn(conn)
+# ===== OpenAI Responses 共用工具 =====
+def get_response_text(resp):
+    """
+    從 Responses API 回傳物件擷取純文字：
+    1. 若 SDK 仍提供 resp.output_text → 直接回傳
+    2. 否則遍歷 resp.output 內的各 block，串接 type==output_text 的 text
+    """
+    if hasattr(resp, "output_text"):
+        return resp.output_text
+
+    text_parts = []
+    for msg in resp.output:                              # 每段 assistant 訊息
+        content = msg["content"] if isinstance(msg, dict) else msg.content
+        for blk in content:                              # 每個 block
+            blk_type = blk.get("type", getattr(blk, "type", None))
+            if blk_type == "output_text":
+                text_parts.append(blk.get("text", getattr(blk, "text", "")))
+    return "".join(text_parts)
 
 def record_usage(feature_name):
     conn = get_db_connection()
@@ -222,7 +240,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = response.output_text
+                    state["summary"] = get_response_text(response)
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -267,7 +285,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = response.output_text
+                reply = get_response_text(response)
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage
@@ -322,7 +340,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = response.output_text
+                    state["summary"] = get_response_text(response)
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -373,7 +391,7 @@ async def on_message(message):
                     store=True
                 )
                 
-                replytext = response.output_text
+                replytext = get_response_text(response)
                 #replyimages = [
                     #blk["result"] if isinstance(blk, dict) else blk.result
                     #for blk in response.output
@@ -446,7 +464,7 @@ async def on_message(message):
                 details = getattr(response.usage, "output_tokens_details", {})
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
-                summary = response.output_text
+                summary = get_response_text(response)
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
                 await summary_channel.send(embed=embed)

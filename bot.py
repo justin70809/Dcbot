@@ -166,6 +166,48 @@ def get_response_text(resp) -> str:
                 texts.append(blk.get("text", getattr(blk, "text", "")))
 
     return "".join(texts)
+# ===== Responses API 共用函式 =====
+def join_text_blocks(resp) -> str:
+    """
+    將 resp.output 內所有 output_text block 串成字串。
+    自動忽略工具呼叫、搜尋結果、圖片等非文字區塊。
+    """
+    if hasattr(resp, "output_text") and resp.output_text:
+        return resp.output_text                       # 全為文字時捷徑
+
+    if not getattr(resp, "output", None):             # 尚無真正輸出
+        return ""
+
+    texts = []
+    for msg in resp.output:
+        content = getattr(msg, "content", None) or msg.get("content", None)
+        if not content:
+            continue
+
+        for blk in content:
+            if (blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)) == "output_text":
+                texts.append(blk.get("text", getattr(blk, "text", "")))
+    return "".join(texts)
+
+
+def extract_web_results(resp) -> list[dict]:
+    """
+    擷取 web_search 結果，回傳 list，每項含 title & url & snippet。
+    """
+    results = []
+    if not getattr(resp, "output", None):
+        return results
+
+    for msg in resp.output:
+        content = getattr(msg, "content", None) or msg.get("content", None)
+        if not content:
+            continue
+
+        for blk in content:
+            blk_type = blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)
+            if blk_type == "web_search_result":
+                results.extend(blk.get("results", []))   # 依官方結構
+    return results
 
 
 

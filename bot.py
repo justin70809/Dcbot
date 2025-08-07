@@ -373,7 +373,7 @@ async def on_message(message):
                     store=True
                 )
                 
-                replytext = response.output_text
+                replytext = response
                 #replyimages = [
                     #blk["result"] if isinstance(blk, dict) else blk.result
                     #for blk in response.output

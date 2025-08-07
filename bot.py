@@ -290,7 +290,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = response.output_text
+                reply = get_response_text(response)
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage
@@ -597,7 +597,7 @@ async def on_message(message):
                     tool_choice={"type": "image_generation"},
                     input=input_prompt,
                 )
-                replytext = response.output_text
+                replytext = get_response_text(response)
                 await send_chunks(message, replytext)
                 replyimages = [
                     blk["result"] if isinstance(blk, dict) else blk.result

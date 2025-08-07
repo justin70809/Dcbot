@@ -125,26 +125,48 @@ def init_db():
 # ===== OpenAI Responses 共用工具 =====
 # ===== OpenAI Responses 共用工具 =====
 def get_response_text(resp) -> str:
-    if hasattr(resp, "output_text"):
-        ot = resp.output_text
-        return ot if isinstance(ot, str) else getattr(ot, "text", str(ot))
+    """
+    從 Responses API 回傳物件擷取所有 output_text。
+    1. 若 SDK 聚合好的 resp.output_text 存在 → 直接用
+    2. 否則遍歷 resp.output：
+       - 先看訊息本身是不是單一 text block
+       - 再看訊息裡的 content 列表
+    任何拿不到屬性的情況一律用 getattr(..., None) 安全跌落
+    """
+    # ① 最快路徑：SDK 已聚合
+    if hasattr(resp, "output_text") and resp.output_text:
+        return resp.output_text if isinstance(resp.output_text, str) else str(resp.output_text)
 
-    if resp.output is None:
-        print("Warning: Response output is None")
+    # ② 沒有 output 或為 None → 給空字串
+    if not getattr(resp, "output", None):
         return ""
 
-    text_parts = []
+    texts = []
     for msg in resp.output:
-        # 有些訊息的 content 可能為 None
-        content = msg["content"] if isinstance(msg, dict) else msg.content
-        if not content:           # ← 空值直接跳過
+        # -- A. 先檢查「訊息本身就是文字 block」的情況 ------------------
+        msg_type = msg["type"] if isinstance(msg, dict) else getattr(msg, "type", None)
+        if msg_type == "output_text":
+            text_val = msg["text"] if isinstance(msg, dict) else getattr(msg, "text", "")
+            texts.append(text_val)
+            continue  # 已拿到文字，跳下一個 msg
+
+        # -- B. 再去抓 message.content（可能不存在） --------------------
+        content = None
+        if isinstance(msg, dict):
+            content = msg.get("content")
+        else:
+            content = getattr(msg, "content", None)
+
+        if not content:          # 沒 content 就跳過（多半是工具呼叫）
             continue
+
         for blk in content:
-            if isinstance(blk, dict) and blk.get("type") == "output_text":
-                text_parts.append(blk.get("text", ""))
-            elif getattr(blk, "type", None) == "output_text":
-                text_parts.append(getattr(blk, "text", ""))
-    return "".join(text_parts)
+            blk_type = blk.get("type", getattr(blk, "type", None))
+            if blk_type == "output_text":
+                texts.append(blk.get("text", getattr(blk, "text", "")))
+
+    return "".join(texts)
+
 
 
 

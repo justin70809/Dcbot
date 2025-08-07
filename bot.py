@@ -128,22 +128,24 @@ def get_response_text(resp) -> str:
     if hasattr(resp, "output_text"):
         ot = resp.output_text
         return ot if isinstance(ot, str) else getattr(ot, "text", str(ot))
-    
+
     if resp.output is None:
         print("Warning: Response output is None")
-        return ""  # 或記錄錯誤：print("Warning: Response output is None")
-    
+        return ""
+
     text_parts = []
     for msg in resp.output:
+        # 有些訊息的 content 可能為 None
         content = msg["content"] if isinstance(msg, dict) else msg.content
+        if not content:           # ← 空值直接跳過
+            continue
         for blk in content:
-            if isinstance(blk, dict):
-                if blk.get("type") == "output_text":
-                    text_parts.append(blk.get("text", ""))
-            else:
-                if getattr(blk, "type", None) == "output_text":
-                    text_parts.append(getattr(blk, "text", ""))
+            if isinstance(blk, dict) and blk.get("type") == "output_text":
+                text_parts.append(blk.get("text", ""))
+            elif getattr(blk, "type", None) == "output_text":
+                text_parts.append(getattr(blk, "text", ""))
     return "".join(text_parts)
+
 
 
 def record_usage(feature_name):

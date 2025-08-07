@@ -122,95 +122,6 @@ def init_db():
 
     conn.commit()
     db_pool.putconn(conn)
-# ===== OpenAI Responses 共用工具 =====
-# ===== OpenAI Responses 共用工具 =====
-def get_response_text(resp) -> str:
-    """
-    從 Responses API 回傳物件擷取所有 output_text。
-    1. 若 SDK 聚合好的 resp.output_text 存在 → 直接用
-    2. 否則遍歷 resp.output：
-       - 先看訊息本身是不是單一 text block
-       - 再看訊息裡的 content 列表
-    任何拿不到屬性的情況一律用 getattr(..., None) 安全跌落
-    """
-    # ① 最快路徑：SDK 已聚合
-    if hasattr(resp, "output_text") and resp.output_text:
-        return resp.output_text if isinstance(resp.output_text, str) else str(resp.output_text)
-
-    # ② 沒有 output 或為 None → 給空字串
-    if not getattr(resp, "output", None):
-        return ""
-
-    texts = []
-    for msg in resp.output:
-        # -- A. 先檢查「訊息本身就是文字 block」的情況 ------------------
-        msg_type = msg["type"] if isinstance(msg, dict) else getattr(msg, "type", None)
-        if msg_type == "output_text":
-            text_val = msg["text"] if isinstance(msg, dict) else getattr(msg, "text", "")
-            texts.append(text_val)
-            continue  # 已拿到文字，跳下一個 msg
-
-        # -- B. 再去抓 message.content（可能不存在） --------------------
-        content = None
-        if isinstance(msg, dict):
-            content = msg.get("content")
-        else:
-            content = getattr(msg, "content", None)
-
-        if not content:          # 沒 content 就跳過（多半是工具呼叫）
-            continue
-
-        for blk in content:
-            blk_type = blk.get("type", getattr(blk, "type", None))
-            if blk_type == "output_text":
-                texts.append(blk.get("text", getattr(blk, "text", "")))
-
-    return "".join(texts)
-# ===== Responses API 共用函式 =====
-def join_text_blocks(resp) -> str:
-    """
-    將 resp.output 內所有 output_text block 串成字串。
-    自動忽略工具呼叫、搜尋結果、圖片等非文字區塊。
-    """
-    if hasattr(resp, "output_text") and resp.output_text:
-        return resp.output_text                       # 全為文字時捷徑
-
-    if not getattr(resp, "output", None):             # 尚無真正輸出
-        return ""
-
-    texts = []
-    for msg in resp.output:
-        content = getattr(msg, "content", None) or msg.get("content", None)
-        if not content:
-            continue
-
-        for blk in content:
-            if (blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)) == "output_text":
-                texts.append(blk.get("text", getattr(blk, "text", "")))
-    return "".join(texts)
-
-
-def extract_web_results(resp) -> list[dict]:
-    """
-    擷取 web_search 結果，回傳 list，每項含 title & url & snippet。
-    """
-    results = []
-    if not getattr(resp, "output", None):
-        return results
-
-    for msg in resp.output:
-        content = getattr(msg, "content", None) or msg.get("content", None)
-        if not content:
-            continue
-
-        for blk in content:
-            blk_type = blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)
-            if blk_type == "web_search_result":
-                results.extend(blk.get("results", []))   # 依官方結構
-    return results
-
-
-
 
 def record_usage(feature_name):
     conn = get_db_connection()
@@ -311,7 +222,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = get_response_text(response)
+                    state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -356,7 +267,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = get_response_text(response)
+                reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage
@@ -411,7 +322,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = get_response_text(response)
+                    state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -433,7 +344,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-5"
+                model_used = "gpt-4.1"
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[
@@ -462,12 +373,8 @@ async def on_message(message):
                     store=True
                 )
                 
-                replytext = get_response_text(response)
-                #replyimages = [
-                    #blk["result"] if isinstance(blk, dict) else blk.result
-                    #for blk in response.output
-                    #if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
-                #]
+                replytext = response.output_text
+
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 input_tokens = response.usage.input_tokens
@@ -479,13 +386,6 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                #for idx, b64 in enumerate(replyimages):
-                    # 1. 先解碼
-                    #buf = io.BytesIO(base64.b64decode(b64))
-                    #buf.seek(0)
-                    # 2. 回傳到 Discord
-                    #await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
-
                 await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
@@ -535,7 +435,7 @@ async def on_message(message):
                 details = getattr(response.usage, "output_tokens_details", {})
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
-                summary = get_response_text(response)
+                summary = response.output_text
                 embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
                 await summary_channel.send(embed=embed)
@@ -663,7 +563,7 @@ async def on_message(message):
                     tool_choice={"type": "image_generation"},
                     input=input_prompt,
                 )
-                replytext = get_response_text(response)
+                replytext = response.output_text
                 await send_chunks(message, replytext)
                 replyimages = [
                     blk["result"] if isinstance(blk, dict) else blk.result

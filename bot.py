@@ -125,28 +125,22 @@ def init_db():
 # ===== OpenAI Responses 共用工具 =====
 # ===== OpenAI Responses 共用工具 =====
 def get_response_text(resp) -> str:
-    """
-    萃取純文字：
-    1. 若 resp.output_text 存在 → 可能是 str 也可能是 ResponseOutputText 物件
-    2. 否則遍歷 resp.output，每遇到 type == "output_text" 的區塊就拼接文字
-    """
-    # --- 案例 A：SDK 仍提供捷徑 ---
-    if hasattr(resp, "output_text"):
+    # 1️⃣ SDK 仍有捷徑就用
+    if hasattr(resp, "output_text") and resp.output_text:
         ot = resp.output_text
         return ot if isinstance(ot, str) else getattr(ot, "text", str(ot))
 
-    # --- 案例 B：須手動抽取 ---
+    # 2️⃣ 若 output 為 None，代表只有 tool_call 或還沒產生文字
+    if not getattr(resp, "output", None):
+        return ""          # 交由呼叫端判斷要不要提示
+
+    # 3️⃣ 正常路徑：手動抽文字 block
     text_parts = []
     for msg in resp.output:
-        content = msg["content"] if isinstance(msg, dict) else msg.content
-        for blk in content:
-            # 先分辨是 dict 還是物件；避免對物件呼叫 .get()
-            if isinstance(blk, dict):
-                if blk.get("type") == "output_text":
-                    text_parts.append(blk.get("text", ""))
-            else:
-                if getattr(blk, "type", None) == "output_text":
-                    text_parts.append(getattr(blk, "text", ""))
+        for blk in (msg["content"] if isinstance(msg, dict) else msg.content):
+            btype = blk.get("type", getattr(blk, "type", None))
+            if btype == "output_text":
+                text_parts.append(blk.get("text", getattr(blk, "text", "")))
     return "".join(text_parts)
 
 

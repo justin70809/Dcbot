@@ -344,7 +344,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-5"
+                model_used = "gpt-4.1"
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[

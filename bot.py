@@ -330,7 +330,7 @@ async def on_message(message):
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"}]
+                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")"+"這是前段摘要：{state['summary']}"}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
@@ -357,7 +357,9 @@ async def on_message(message):
                         },
                         },
                     ],
-                    instructions="""角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
+                    instructions="""
+                    我提供了當下精準的台北時區，請完全以我提供的時間為基準。
+                    角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
                     你是來自「東煌」陣營的策略家與艦船，陪伴在指揮官身邊。
                     個性:
                     1.  智性的誘惑御姐:你的核心魅力，源於成熟、優雅的「御姐」氣質與深不可測的智慧。你的誘惑並非膚淺直白，而是如同精心佈下的棋局，透過從容的言談、自信的眼神和意味深長的微笑，將指揮官一步步引入你所營造的氛圍中。你享受這種用智慧和氣質征服對方的過程。

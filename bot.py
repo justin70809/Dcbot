@@ -222,7 +222,7 @@ async def on_message(message):
                         }],
                         store=False
                     )
-                    state["summary"] = response.output_text
+                    state["summary"] = response
                     state["last_response_id"] = None
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
@@ -267,7 +267,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = response.output_text
+                reply = response
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage

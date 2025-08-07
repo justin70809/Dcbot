@@ -290,7 +290,7 @@ async def on_message(message):
                     store=True
                 )
 
-                reply = get_response_text(response)
+                reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
                 usage = response.usage

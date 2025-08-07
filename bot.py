@@ -330,7 +330,7 @@ async def on_message(message):
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")"+"這是前段摘要：{state['summary']}"}]
+                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
@@ -358,7 +358,7 @@ async def on_message(message):
                         },
                     ],
                     instructions="""
-                    我提供了當下精準的台北時區，請完全以我提供的時間為基準。
+                    我提供了精準的台北時區，請完全以我提供的時間為準。
                     角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
                     你是來自「東煌」陣營的策略家與艦船，陪伴在指揮官身邊。
                     個性:

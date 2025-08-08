@@ -372,7 +372,7 @@ async def on_message(message):
                     """,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
-                    reasoning={"effort": "medium"},
+                    reasoning={"effort": "low"},
                     text={"verbosity": "high"},
                     store=True
                 )

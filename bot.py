@@ -232,7 +232,7 @@ async def on_message(message):
                 input_prompt = []
                 input_prompt.append({
                     "role": "user",
-                    "content": Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"+prompt
+                    "content": Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要你默默知道即可："+state['summary']+prompt
                 })
 
                 # ✅ 開始新一輪（若 reset 則無 previous_id）
@@ -330,7 +330,7 @@ async def on_message(message):
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要：{state['summary']}"}]
+                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要你默默知道即可："+state['summary']}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url

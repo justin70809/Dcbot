@@ -210,7 +210,7 @@ async def on_message(message):
                 # ✅ 若滿 5 輪，產生摘要、重置回合數與對話 ID
                 if state["thread_count"] >= 5 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4.1",
+                        model="gpt-5.1",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -344,7 +344,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-5"
+                model_used = "gpt-5.1"
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[
@@ -423,7 +423,7 @@ async def on_message(message):
                 messages_history = [msg async for msg in source_channel.history(limit=1000)]
                 conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
                 source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-                model_used="gpt-4.1-mini"
+                model_used="gpt-5.1"
                 response = client_ai.responses.create(
                     model=model_used,
                     input=[

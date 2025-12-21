@@ -423,7 +423,7 @@ async def on_message(message):
                 messages_history = [msg async for msg in source_channel.history(limit=1000)]
                 conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
                 source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-                model_used="gpt-5.1"
+                model_used="gpt-5.2"
                 response = client_ai.responses.create(
                     model=model_used,
                     input=[
@@ -481,7 +481,7 @@ async def on_message(message):
                 reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
                 await send_chunks(message, reply_text)
                 count = record_usage("搜尋")
-                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-2.5-flash")
+                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{response.model} ")
             
                 #else:
                     # ✅ 正常狀況：使用 Perplexity 查詢

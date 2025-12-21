@@ -467,7 +467,7 @@ async def on_message(message):
                 search_tool = Tool(google_search=GoogleSearch())
                 now = datetime.now(ZoneInfo("Asia/Taipei"))
                 response = client_gemini.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3-flash-preview",
                     contents=[{
                     "role": "user",
                     "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答"+query}]

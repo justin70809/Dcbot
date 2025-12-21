@@ -481,7 +481,7 @@ async def on_message(message):
                 reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
                 await send_chunks(message, reply_text)
                 count = record_usage("搜尋")
-                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{response.model} ")
+                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-3-flash-preview ")
             
                 #else:
                     # ✅ 正常狀況：使用 Perplexity 查詢

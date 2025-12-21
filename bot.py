@@ -471,7 +471,7 @@ async def on_message(message):
                     model="gemini-3-flash-preview",
                     contents=[{
                     "role": "user",
-                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答"+query}]
+                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答，由於將會在DISCORD上使用，請以DISCORD的格式、字數限制來回答"+query}]
                 }],
                 config=GenerateContentConfig(
                 tools=[search_tool],

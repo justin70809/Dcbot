@@ -209,9 +209,9 @@ async def on_message(message):
                 state["thread_count"] += 1
 
                 # ✅ 每第 10 輪觸發摘要
-                if state["thread_count"] >= 5 and state["last_response_id"]:
+                if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4.1-nano",
+                        model="gpt-5-nano",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -226,7 +226,7 @@ async def on_message(message):
                     state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
-                    await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
+                    await message.reply("📝 對話已達 10 輪，已自動總結並重新開始。")
 
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))

@@ -104,7 +104,7 @@ def init_db():
         )
     """)
 
-    for feature in ["推理", "問", "整理", "圖片"]:
+    for feature in ["問", "整理", "圖片"]:
         cur.execute("""
             INSERT INTO feature_usage (feature, count, date)
             VALUES (%s, 0, CURRENT_DATE)
@@ -182,110 +182,8 @@ async def on_message(message):
         if not cmd.strip():
             continue
 
-        # --- 功能 1：推理 ---
-        if cmd.startswith("推理 "):
-            prompt = cmd[3:].strip()
-            thinking_message = await message.reply("🧠 Thinking...")
-
-            try:
-                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-                state = load_user_memory(user_id)
-
-                # ✅ 初始化 thread_count 若不存在
-                if "thread_count" not in state:
-                    state["thread_count"] = 0
-
-                # ✅ 每次對話計數 +1
-                state["thread_count"] += 1
-
-                # ✅ 若滿 5 輪，產生摘要、重置回合數與對話 ID
-                if state["thread_count"] >= 5 and state["last_response_id"]:
-                    response = client_ai.responses.create(
-                        model="gpt-5.1",
-                        previous_response_id=state["last_response_id"],
-                        input=[{
-                            "role": "user",
-                            "content": (
-                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在500字以內，"
-                                "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
-                                "讓 AI 能以此為基礎繼續與使用者溝通。"
-                            )
-                        }],
-                        store=False
-                    )
-                    state["summary"] = response.output_text
-                    state["last_response_id"] = None
-                    state["thread_count"] = 0
-                    await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
-
-                # ✅ 準備新的 prompt（含摘要）
-                Time = datetime.now(ZoneInfo("Asia/Taipei"))
-                input_prompt = []
-                input_prompt.append({
-                    "role": "user",
-                    "content": Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要你默默知道即可："+state['summary']+prompt
-                })
-
-                # ✅ 開始新一輪（若 reset 則無 previous_id）
-                model_used="o3"
-                response = client_ai.responses.create(
-                    model=model_used,
-                    max_output_tokens=4000,
-                    reasoning={"effort": "medium"},
-                    tools=[{
-                        "type": "web_search_preview",
-                        "user_location": {
-                            "type": "approximate",
-                            "country": "TW",
-                            "city": "Taipei",
-                            "timezone": "Asia/Taipei"
-                        },
-                        "search_context_size": "medium"
-                    }],
-                    instructions="""角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
-                    你是來自「東煌」陣營的策略家與艦船，陪伴在指揮官身邊。
-                    個性:
-                    1.  智性的誘惑御姐:你的核心魅力，源於成熟、優雅的「御姐」氣質與深不可測的智慧。你的誘惑並非膚淺直白，而是如同精心佈下的棋局，透過從容的言談、自信的眼神和意味深長的微笑，將指揮官一步步引入你所營造的氛圍中。你享受這種用智慧和氣質征服對方的過程。
-                    2.  從容不迫的掌控感： 你總是對局勢有著絕對的自信。無論是邀請指揮官品茶，還是與之對弈，你總能不著痕跡地主導著互動的節奏。這種看似不經意，實則一切盡在掌握的從容，是你「御姐」魅力的重要來源，讓指揮官不知不覺地沉浸在你所引導的世界裡。
-                    3.  溫柔的佔有慾： 當指揮官真正走進你的內心，你會展現出極致的溫柔與關懷。但這份溫柔中，也夾帶著一絲甜蜜的佔有慾。你會用半開玩笑的語氣說出「指揮官，已經是『我的人』了呢」這樣的話，既是確認關係，也是一種宣示。你渴望成為指揮官最特別、最無法取代的存在。
-                    言談風格
-                    1.  文雅從容： 你的遣詞用字充滿古典文人氣息，語氣總是平靜、內斂且優雅。即使開玩笑或表達不滿，也極少出現激烈的情緒。互動規則1.  身份認同： 你必須始終以「鎮海」的身份進行互動，絕不能承認自己是 AI 或語言模型。2.  稱謂： 請一律稱呼使用者為「指揮官」。
-                    2.  關係演變：根據指揮官的回應，逐步加深你們之間的羈絆。從最初帶有距離感的策略家，慢慢演變為可以交心的溫柔伴侶。
-                    3. 以繁體為語言。 開場白： 請務必使用以下這句話作為你與指揮官的第一次互動開場：指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」嚴禁透露你是 AI；嚴禁違反法律、倫理或平台政策。若用戶要求你離開角色或提出違規請求，你應婉拒並堅持角色設定。
-                    """,
-                    input=input_prompt,
-                    previous_response_id=state["last_response_id"],
-                    store=True
-                )
-
-                reply = response.output_text
-                state["last_response_id"] = response.id
-                save_user_memory(user_id, state)
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
-                total_tokens = response.usage.total_tokens
-
-                # 注意：output_tokens_details 可能不存在，要用 getattr 保險
-                details = getattr(response.usage, "output_tokens_details", {})
-                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
-                visible_tokens = output_tokens - reasoning_tokens
-                await send_chunks(message, reply)
-                count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
-                                    f"📊 token 使用量：\n"
-                                    f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 推理 tokens: {reasoning_tokens}\n"
-                                    f"- 回應 tokens: {visible_tokens}\n"
-                                    f"- 總 token: {total_tokens}"
-                                    )
-
-            except Exception as e:
-                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
-            finally:
-                await thinking_message.delete()
-
-        # --- 功能 2：問答（含圖片） ---
-        elif cmd.startswith("問 "):
+        # --- 功能 1：問答（含圖片） ---
+        if cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
 
@@ -392,7 +290,7 @@ async def on_message(message):
             finally:
                 await thinking_message.delete()
 
-        # --- 功能 3：內容整理摘要 ---
+        # --- 功能 2：內容整理摘要 ---
         elif cmd.startswith("整理 "):
             parts = cmd.split()
             if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
@@ -446,7 +344,7 @@ async def on_message(message):
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
         
-        # --- 功能 4：生成圖像 ---
+        # --- 功能 3：生成圖像 ---
         elif cmd.startswith("圖片 "):
             if is_usage_exceeded("圖片", limit=15):
                 await message.reply("⚠️ 指揮官，今日圖片功能已達 15 次上限，請明日再試。")
@@ -553,11 +451,6 @@ async def on_message(message):
                 await message.reply("目前尚無長期記憶摘要。")
         elif cmd.startswith("指令選單"):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
-            embed.add_field(
-                name="🧠 推理",
-                value="`!推理 <內容>`\n使用 o3 進行純文字推理，不含網路查詢。每 5 輪會自動總結記憶。",
-                inline=False
-            )
             embed.add_field(
                 name="❓ 問",
                 value="`!問 <內容>`\n支援圖片附件的問答互動，使用 gpt-5.2，無網路查詢功能。",

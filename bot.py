@@ -292,14 +292,14 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：gpt-5-nano）\n"+"✅ 已啟用網路查證功能（web_search_preview）\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
+                await message.reply(f"❌ 問功能發生錯誤（{type(e).__name__}）: {e}")
             finally:
                 await thinking_message.delete()
 
@@ -355,7 +355,7 @@ async def on_message(message):
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
+                await message.reply(f"❌ 整理功能發生錯誤（{type(e).__name__}）: {e}")
         
         # --- 功能 3：生成圖像 ---
         elif cmd.startswith("圖片 "):
@@ -416,14 +416,14 @@ async def on_message(message):
                 input_tokens = response.usage.input_tokens
                 output_tokens = response.usage.output_tokens
                 total_tokens = response.usage.total_tokens
-                await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1+gpt-4.1"
+                await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：{model_used}+gpt-image-1"
                                     f"\n📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
                                     f"- 回應 tokens: {output_tokens}\n"
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"出現錯誤：{e}")
+                await message.reply(f"❌ 圖片功能發生錯誤（{type(e).__name__}）: {e}")
             finally:
                 await thinking.delete()
         elif cmd.startswith("重置記憶"):
@@ -465,12 +465,17 @@ async def on_message(message):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
             embed.add_field(
                 name="❓ 問",
-                value="`!問 <內容>`\n支援圖片附件的問答互動，使用 gpt-5.2，無網路查詢功能。",
+                value="`!問 <內容>`\n支援圖片附件問答；主模型 `gpt-5.2`，每 10 輪以 `gpt-5-nano` 做記憶摘要，並啟用網路查證。",
                 inline=False
             )
             embed.add_field(
                 name="🧹 整理",
-                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 1000 則訊息生成摘要並發送至指定頻道。",
+                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n使用 `gpt-5.2` 整理近 1000 則訊息並發送至指定頻道。",
+                inline=False
+            )
+            embed.add_field(
+                name="🎨 圖片",
+                value="`!圖片 <描述>`\n使用 `gpt-4.1 + gpt-image-1` 生成圖片（含網路查證）。",
                 inline=False
             )
             embed.add_field(

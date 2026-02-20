@@ -1,20 +1,11 @@
 ### 📦 模組與套件匯入
 import discord
 from openai import OpenAI
-import os, requests, datetime, base64, re, io
-import fitz  # 處理 PDF 檔案 (PyMuPDF)
-import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+import os, base64, io
+from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
-import json
 import tiktoken
-from google import genai
-from google.genai import types
-from google.genai.types import Tool, GenerateContentConfig, GoogleSearch
-from PIL import Image
-from io import BytesIO
 from datetime import datetime
-from datetime import date
 from zoneinfo import ZoneInfo
 
 # ===== 1. 載入環境變數與 API 金鑰 =====
@@ -113,7 +104,7 @@ def init_db():
         )
     """)
 
-    for feature in ["推理", "問", "整理", "搜尋"]:
+    for feature in ["推理", "問", "整理", "圖片"]:
         cur.execute("""
             INSERT INTO feature_usage (feature, count, date)
             VALUES (%s, 0, CURRENT_DATE)
@@ -270,7 +261,6 @@ async def on_message(message):
                 reply = response.output_text
                 state["last_response_id"] = response.id
                 save_user_memory(user_id, state)
-                usage = response.usage
                 input_tokens = response.usage.input_tokens
                 output_tokens = response.usage.output_tokens
                 total_tokens = response.usage.total_tokens
@@ -456,77 +446,7 @@ async def on_message(message):
             except Exception as e:
                 await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
         
-        # --- 功能 4：搜尋查詢 ---
-        elif cmd.startswith("搜尋 "):
-            query = cmd[2:].strip()
-            thinking_message = await message.reply("🔍 搜尋中...")
-
-            try:
-                api_key = os.getenv("GEMINI_API_KEY")
-                client_gemini = genai.Client(api_key=api_key)
-
-                search_tool = Tool(google_search=GoogleSearch())
-                now = datetime.now(ZoneInfo("Asia/Taipei"))
-                response = client_gemini.models.generate_content(
-                    model="gemini-3-flash-preview",
-                    contents=[{
-                    "role": "user",
-                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答，由於將會在DISCORD上使用，請以DISCORD的格式、字數限制來回答"+query}]
-                }],
-                config=GenerateContentConfig(
-                tools=[search_tool],
-                response_modalities=["TEXT"]
-                )
-                )
-
-                reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-                await send_chunks(message, reply_text)
-                count = record_usage("搜尋")
-                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-3-flash-preview ")
-            
-                #else:
-                    # ✅ 正常狀況：使用 Perplexity 查詢
-                   # model_used = "sonar"
-                    #payload = {
-                        #"model": model_used,
-                        #"messages": [
-                            #{
-                                #"role": "system",
-                                #"content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內。"
-                            #},
-                            #{"role": "user", "content": query}
-                        #],
-                        #"max_tokens": 1000,
-                        #"temperature": 1.2,
-                        #"top_p": 0.9,
-                        #"top_k": 0,
-                        #"stream": False,
-                        #"presence_penalty": 0,
-                        #"frequency_penalty": 1,
-                        #" response_format": {},
-                        #"web_search_options": {"search_context_size": "low"}
-                    #}
-                    #headers = {
-                        #"Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                        #"Content-Type": "application/json"
-                    #}
-                    #response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
-
-                    #if response.status_code == 200:
-                        #data = response.json()
-                        #reply = data["choices"][0]["message"]["content"]
-                        #await send_chunks(message, reply_text)
-
-                        #count = record_usage("搜尋")
-                        #await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
-                    #else:
-                        #await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
-                    
-            except Exception as e:
-                await message.reply(f"❌ 搜尋時發生錯誤: {e}")
-            finally:
-                await thinking_message.delete()
-        # --- 功能 5：生成圖像 ---
+        # --- 功能 4：生成圖像 ---
         elif cmd.startswith("圖片 "):
             if is_usage_exceeded("圖片", limit=15):
                 await message.reply("⚠️ 指揮官，今日圖片功能已達 15 次上限，請明日再試。")
@@ -645,11 +565,6 @@ async def on_message(message):
             embed.add_field(
                 name="🧹 整理",
                 value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 50 則訊息生成摘要並發送至指定頻道。",
-                inline=False
-            )
-            embed.add_field(
-                name="🔍 搜尋",
-                value="`!搜尋 <查詢內容>`\n使用 Perplexity 進行網路查詢。若超過每日 20 次上限，將自動切換為 Gemini + Google Search。",
                 inline=False
             )
             embed.add_field(

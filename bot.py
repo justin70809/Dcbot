@@ -355,22 +355,11 @@ def create_grok_chat_completion(messages, tools, tool_choice="auto"):
 
 def run_grok_with_tools(messages, max_rounds=3):
     active_tools = build_grok_tools(enable_external_search=True)
-    forced_tool_choices = [
-        {"type": "function", "function": {"name": "web_search"}},
-        {"type": "function", "function": {"name": "x_search"}},
-        "auto",
-    ]
-
-    response = None
-    for forced_choice in forced_tool_choices:
-        response, active_tools = create_grok_chat_completion(messages, active_tools, tool_choice=forced_choice)
-        assistant_message = response.choices[0].message
-        assistant_text = assistant_message.content or ""
-        if assistant_text:
-            messages.append({"role": "assistant", "content": assistant_text})
-
-    if response is None:
-        response, active_tools = create_grok_chat_completion(messages, active_tools)
+    response, active_tools = create_grok_chat_completion(
+        messages,
+        active_tools,
+        tool_choice={"type": "function", "function": {"name": "web_search"}},
+    )
 
     for _ in range(max_rounds):
         assistant_message = response.choices[0].message

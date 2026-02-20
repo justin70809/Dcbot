@@ -1,7 +1,7 @@
 ### 📦 模組與套件匯入
 import discord
 from openai import OpenAI
-import os, base64, io
+import os, base64, io, json
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from datetime import datetime
@@ -216,6 +216,20 @@ ASK_INSTRUCTIONS = """
 """.strip()
 
 GROK_MODEL = "grok-4-1-fast-reasoning"
+GROK_FUNCTION_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_taipei_time",
+            "description": "取得目前台北時間（Asia/Taipei）。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+]
 
 
 def build_ask_user_text(prompt, current_time, summary, is_first_turn):
@@ -257,6 +271,78 @@ def get_grok_usage(usage):
     if total_tokens is None:
         total_tokens = prompt_tokens + completion_tokens
     return prompt_tokens, completion_tokens, total_tokens
+
+
+def build_tool_call_payload(tool_call):
+    function_data = getattr(tool_call, "function", None)
+    return {
+        "id": getattr(tool_call, "id", ""),
+        "type": "function",
+        "function": {
+            "name": getattr(function_data, "name", ""),
+            "arguments": getattr(function_data, "arguments", "{}"),
+        },
+    }
+
+
+def execute_grok_tool(tool_name, tool_args_raw):
+    try:
+        args = json.loads(tool_args_raw or "{}")
+    except json.JSONDecodeError:
+        args = {}
+
+    if tool_name == "get_taipei_time":
+        now = datetime.now(ZoneInfo("Asia/Taipei"))
+        return json.dumps({
+            "timezone": "Asia/Taipei",
+            "iso": now.isoformat(),
+            "readable": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }, ensure_ascii=False)
+
+    return json.dumps({"error": f"unknown tool: {tool_name}", "args": args}, ensure_ascii=False)
+
+
+def run_grok_with_tools(messages, max_rounds=3):
+    response = client_grok.chat.completions.create(
+        model=GROK_MODEL,
+        messages=messages,
+        tools=GROK_FUNCTION_TOOLS,
+        tool_choice="auto",
+        max_tokens=4096,
+    )
+
+    for _ in range(max_rounds):
+        assistant_message = response.choices[0].message
+        tool_calls = getattr(assistant_message, "tool_calls", None) or []
+        if not tool_calls:
+            return response
+
+        messages.append({
+            "role": "assistant",
+            "content": assistant_message.content or "",
+            "tool_calls": [build_tool_call_payload(tc) for tc in tool_calls],
+        })
+
+        for tool_call in tool_calls:
+            function_data = getattr(tool_call, "function", None)
+            tool_name = getattr(function_data, "name", "")
+            tool_args = getattr(function_data, "arguments", "{}")
+            tool_result = execute_grok_tool(tool_name, tool_args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": getattr(tool_call, "id", ""),
+                "content": tool_result,
+            })
+
+        response = client_grok.chat.completions.create(
+            model=GROK_MODEL,
+            messages=messages,
+            tools=GROK_FUNCTION_TOOLS,
+            tool_choice="auto",
+            max_tokens=4096,
+        )
+
+    return response
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -411,14 +497,11 @@ async def on_message(message):
 
                 count = record_usage("問2")
                 model_used = GROK_MODEL
-                response = client_grok.chat.completions.create(
-                    model=model_used,
-                    messages=[
-                        {"role": "system", "content": ASK_INSTRUCTIONS},
-                        {"role": "user", "content": user_content},
-                    ],
-                    max_tokens=4096,
-                )
+                messages = [
+                    {"role": "system", "content": ASK_INSTRUCTIONS},
+                    {"role": "user", "content": user_content},
+                ]
+                response = run_grok_with_tools(messages)
 
                 replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
                 prompt_tokens, completion_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
@@ -609,7 +692,7 @@ async def on_message(message):
             )
             embed.add_field(
                 name="🧠 問2（Grok）",
-                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`（需設定 `XAI_API_KEY`）。",
+                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`，並啟用 function calling（需設定 `XAI_API_KEY`）。",
                 inline=False
             )
             embed.add_field(

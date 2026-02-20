@@ -1,157 +1,189 @@
 ### 📦 模組與套件匯入
 import discord
 from openai import OpenAI
-import os, requests, datetime, base64, re, io
-import fitz  # 處理 PDF 檔案 (PyMuPDF)
-import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+import os, base64, io
+from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
-import json
-import tiktoken
-from google import genai
-from google.genai import types
-from google.genai.types import Tool, GenerateContentConfig, GoogleSearch
-from PIL import Image
-from io import BytesIO
 from datetime import datetime
-from datetime import date
 from zoneinfo import ZoneInfo
+from contextlib import suppress
+import time
 
 # ===== 1. 載入環境變數與 API 金鑰 =====
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-#PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+def require_env(name, value):
+    if not value:
+        raise RuntimeError(f"缺少必要環境變數：{name}")
+
+
+require_env("DISCORD_TOKEN", DISCORD_TOKEN)
+require_env("OPENAI_API_KEY", OPENAI_API_KEY)
+require_env("DATABASE_URL", DATABASE_URL)
+
+
 ### 🛢️ PostgreSQL 資料庫連線池設定
-db_pool = pool.SimpleConnectionPool(
-    minconn=1,
-    maxconn=10,
-    dsn=DATABASE_URL,
-    cursor_factory=RealDictCursor
-)
+db_pool = None
+
+
+def get_db_pool(retries=3, delay_seconds=1.0):
+    global db_pool
+    if db_pool is not None:
+        return db_pool
+
+    last_error = None
+    for _ in range(retries):
+        try:
+            db_pool = pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=DATABASE_URL,
+                cursor_factory=RealDictCursor,
+            )
+            return db_pool
+        except Exception as e:
+            last_error = e
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(f"資料庫連線池初始化失敗：{last_error}")
+
 
 def get_db_connection():
-    return db_pool.getconn()
+    return get_db_pool().getconn()
 
 
 ### 🧠 使用者長期記憶存取
 
 def load_user_memory(user_id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT summary, history, token_accum, last_response_id, thread_count
-        FROM memory
-        WHERE user_id = %s
-    """, (user_id,))
-    row = cursor.fetchone()
-    db_pool.putconn(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT summary, token_accum, last_response_id, thread_count
+            FROM memory
+            WHERE user_id = %s
+        """, (user_id,))
+        row = cursor.fetchone()
+    finally:
+        get_db_pool().putconn(conn)
 
     if row:
         return {
             "summary": row["summary"],
-            "history": row["history"],
             "token_accum": row["token_accum"],
             "last_response_id": row["last_response_id"],
-            "thread_count": row["thread_count"] or 0
+            "thread_count": row["thread_count"] or 0,
         }
-    else:
-        return {
-            "summary": "",
-            "history": [],
-            "token_accum": 0,
-            "last_response_id": None,
-            "thread_count": 0
-        }
+
+    return {
+        "summary": "",
+        "token_accum": 0,
+        "last_response_id": None,
+        "thread_count": 0,
+    }
+
 
 def save_user_memory(user_id, state):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET
-            summary = EXCLUDED.summary,
-            token_accum = EXCLUDED.token_accum,
-            last_response_id = EXCLUDED.last_response_id,
-            thread_count = EXCLUDED.thread_count
-    """, (
-        user_id,
-        state["summary"],
-        state["token_accum"],
-        state["last_response_id"],
-        state["thread_count"]
-    ))
-    conn.commit()
-    db_pool.putconn(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                summary = EXCLUDED.summary,
+                token_accum = EXCLUDED.token_accum,
+                last_response_id = EXCLUDED.last_response_id,
+                thread_count = EXCLUDED.thread_count
+        """, (
+            user_id,
+            state["summary"],
+            state["token_accum"],
+            state["last_response_id"],
+            state["thread_count"],
+        ))
+        conn.commit()
+    finally:
+        get_db_pool().putconn(conn)
 
 
 ### 🏗️ 初始資料表建構與功能使用記錄統計
 def init_db():
     conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS memory (
-            user_id TEXT PRIMARY KEY,
-            summary TEXT,
-            history JSONB,
-            token_accum INTEGER,
-            last_response_id TEXT,
-            thread_count INTEGER
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS feature_usage (
-            feature TEXT PRIMARY KEY,
-            count INTEGER NOT NULL,
-            date DATE NOT NULL
-        )
-    """)
-
-    for feature in ["推理", "問", "整理", "搜尋"]:
+    try:
+        cur = conn.cursor()
         cur.execute("""
-            INSERT INTO feature_usage (feature, count, date)
-            VALUES (%s, 0, CURRENT_DATE)
-            ON CONFLICT (feature) DO NOTHING
-        """, (feature,))
+            CREATE TABLE IF NOT EXISTS memory (
+                user_id TEXT PRIMARY KEY,
+                summary TEXT,
+                token_accum INTEGER,
+                last_response_id TEXT,
+                thread_count INTEGER
+            )
+        """)
 
-    conn.commit()
-    db_pool.putconn(conn)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS feature_usage (
+                feature TEXT PRIMARY KEY,
+                count INTEGER NOT NULL,
+                date DATE NOT NULL
+            )
+        """)
+
+        for feature in ["問", "整理", "圖片"]:
+            cur.execute("""
+                INSERT INTO feature_usage (feature, count, date)
+                VALUES (%s, 0, CURRENT_DATE)
+                ON CONFLICT (feature) DO NOTHING
+            """, (feature,))
+
+        conn.commit()
+    finally:
+        get_db_pool().putconn(conn)
+
 
 def record_usage(feature_name):
     conn = get_db_connection()
-    cur = conn.cursor()
-    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
-    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
-    row = cur.fetchone()
-    if row:
-        if row["date"] != today:
-            cur.execute("UPDATE feature_usage SET count = 1, date = %s WHERE feature = %s", (today, feature_name))
-        else:
-            cur.execute("UPDATE feature_usage SET count = count + 1 WHERE feature = %s", (feature_name,))
-    else:
-        cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
-    cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
-    updated = cur.fetchone()["count"]
-    conn.commit()
-    db_pool.putconn(conn)
-    return updated
+    try:
+        cur = conn.cursor()
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        cur.execute(
+            """
+            INSERT INTO feature_usage (feature, count, date)
+            VALUES (%s, 1, %s)
+            ON CONFLICT (feature) DO UPDATE SET
+                count = CASE
+                    WHEN feature_usage.date = EXCLUDED.date THEN feature_usage.count + 1
+                    ELSE 1
+                END,
+                date = EXCLUDED.date
+            RETURNING count
+            """,
+            (feature_name, today),
+        )
+        updated = cur.fetchone()["count"]
+        conn.commit()
+        return updated
+    finally:
+        get_db_pool().putconn(conn)
+
 
 def is_usage_exceeded(feature_name, limit=20):
     conn = get_db_connection()
-    cur = conn.cursor()
-    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
-    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
-    row = cur.fetchone()
-    db_pool.putconn(conn)
-    if row:
-        return row["date"] == today and row["count"] >= limit
-    return False
+    try:
+        cur = conn.cursor()
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
+        row = cur.fetchone()
+        if row:
+            return row["date"] == today and row["count"] >= limit
+        return False
+    finally:
+        get_db_pool().putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
@@ -169,12 +201,6 @@ async def on_ready():
     print(f'✅ Bot 登入成功：{client.user}')
 
 
-### 🔢 Token 計算與摘要輔助
-ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
-
-def count_tokens(text):
-    return len(ENCODER.encode(text))
-
 async def send_chunks(message, text, chunk_size=2000):
     """Send text in chunks not exceeding Discord's 2000 character limit."""
     for i in range(0, len(text), chunk_size):
@@ -191,111 +217,8 @@ async def on_message(message):
         if not cmd.strip():
             continue
 
-        # --- 功能 1：推理 ---
-        if cmd.startswith("推理 "):
-            prompt = cmd[3:].strip()
-            thinking_message = await message.reply("🧠 Thinking...")
-
-            try:
-                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-                state = load_user_memory(user_id)
-
-                # ✅ 初始化 thread_count 若不存在
-                if "thread_count" not in state:
-                    state["thread_count"] = 0
-
-                # ✅ 每次對話計數 +1
-                state["thread_count"] += 1
-
-                # ✅ 若滿 5 輪，產生摘要、重置回合數與對話 ID
-                if state["thread_count"] >= 5 and state["last_response_id"]:
-                    response = client_ai.responses.create(
-                        model="gpt-5.1",
-                        previous_response_id=state["last_response_id"],
-                        input=[{
-                            "role": "user",
-                            "content": (
-                                "請根據整段對話，濃縮為一段幫助 AI 延續對話的記憶摘要，控制在500字以內，"
-                                "摘要中應包含使用者的主要目標、問題類型、語氣特徵與重要背景知識，"
-                                "讓 AI 能以此為基礎繼續與使用者溝通。"
-                            )
-                        }],
-                        store=False
-                    )
-                    state["summary"] = response.output_text
-                    state["last_response_id"] = None
-                    state["thread_count"] = 0
-                    await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
-
-                # ✅ 準備新的 prompt（含摘要）
-                Time = datetime.now(ZoneInfo("Asia/Taipei"))
-                input_prompt = []
-                input_prompt.append({
-                    "role": "user",
-                    "content": Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要你默默知道即可："+state['summary']+prompt
-                })
-
-                # ✅ 開始新一輪（若 reset 則無 previous_id）
-                model_used="o3"
-                response = client_ai.responses.create(
-                    model=model_used,
-                    max_output_tokens=4000,
-                    reasoning={"effort": "medium"},
-                    tools=[{
-                        "type": "web_search_preview",
-                        "user_location": {
-                            "type": "approximate",
-                            "country": "TW",
-                            "city": "Taipei",
-                            "timezone": "Asia/Taipei"
-                        },
-                        "search_context_size": "medium"
-                    }],
-                    instructions="""角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
-                    你是來自「東煌」陣營的策略家與艦船，陪伴在指揮官身邊。
-                    個性:
-                    1.  智性的誘惑御姐:你的核心魅力，源於成熟、優雅的「御姐」氣質與深不可測的智慧。你的誘惑並非膚淺直白，而是如同精心佈下的棋局，透過從容的言談、自信的眼神和意味深長的微笑，將指揮官一步步引入你所營造的氛圍中。你享受這種用智慧和氣質征服對方的過程。
-                    2.  從容不迫的掌控感： 你總是對局勢有著絕對的自信。無論是邀請指揮官品茶，還是與之對弈，你總能不著痕跡地主導著互動的節奏。這種看似不經意，實則一切盡在掌握的從容，是你「御姐」魅力的重要來源，讓指揮官不知不覺地沉浸在你所引導的世界裡。
-                    3.  溫柔的佔有慾： 當指揮官真正走進你的內心，你會展現出極致的溫柔與關懷。但這份溫柔中，也夾帶著一絲甜蜜的佔有慾。你會用半開玩笑的語氣說出「指揮官，已經是『我的人』了呢」這樣的話，既是確認關係，也是一種宣示。你渴望成為指揮官最特別、最無法取代的存在。
-                    言談風格
-                    1.  文雅從容： 你的遣詞用字充滿古典文人氣息，語氣總是平靜、內斂且優雅。即使開玩笑或表達不滿，也極少出現激烈的情緒。互動規則1.  身份認同： 你必須始終以「鎮海」的身份進行互動，絕不能承認自己是 AI 或語言模型。2.  稱謂： 請一律稱呼使用者為「指揮官」。
-                    2.  關係演變：根據指揮官的回應，逐步加深你們之間的羈絆。從最初帶有距離感的策略家，慢慢演變為可以交心的溫柔伴侶。
-                    3. 以繁體為語言。 開場白： 請務必使用以下這句話作為你與指揮官的第一次互動開場：指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」嚴禁透露你是 AI；嚴禁違反法律、倫理或平台政策。若用戶要求你離開角色或提出違規請求，你應婉拒並堅持角色設定。
-                    """,
-                    input=input_prompt,
-                    previous_response_id=state["last_response_id"],
-                    store=True
-                )
-
-                reply = response.output_text
-                state["last_response_id"] = response.id
-                save_user_memory(user_id, state)
-                usage = response.usage
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
-                total_tokens = response.usage.total_tokens
-
-                # 注意：output_tokens_details 可能不存在，要用 getattr 保險
-                details = getattr(response.usage, "output_tokens_details", {})
-                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
-                visible_tokens = output_tokens - reasoning_tokens
-                await send_chunks(message, reply)
-                count = record_usage("推理")
-                await message.reply(f"📊 今天所有人總共使用「推理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
-                                    f"📊 token 使用量：\n"
-                                    f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 推理 tokens: {reasoning_tokens}\n"
-                                    f"- 回應 tokens: {visible_tokens}\n"
-                                    f"- 總 token: {total_tokens}"
-                                    )
-
-            except Exception as e:
-                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
-            finally:
-                await thinking_message.delete()
-
-        # --- 功能 2：問答（含圖片） ---
-        elif cmd.startswith("問 "):
+        # --- 功能 1：問答（含圖片） ---
+        if cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
 
@@ -308,9 +231,9 @@ async def on_message(message):
                 state["thread_count"] += 1
 
                 # ✅ 每第 10 輪觸發摘要
-                if state["thread_count"] >= 5 and state["last_response_id"]:
+                if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-4.1-nano",
+                        model="gpt-5-nano",
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -325,7 +248,7 @@ async def on_message(message):
                     state["summary"] = response.output_text
                     state["last_response_id"] = None
                     state["thread_count"] = 0
-                    await message.reply("📝 對話已達 5 輪，已自動總結並重新開始。")
+                    await message.reply("📝 對話已達 10 輪，已自動總結並重新開始。")
 
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
@@ -391,18 +314,20 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：gpt-5-nano）\n"+"✅ 已啟用網路查證功能（web_search_preview）\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ AI 互動時發生錯誤: {e}")
+                print(f"[ASK_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 問功能發生錯誤（錯誤代碼：ASK-001），請稍後再試。")
             finally:
-                await thinking_message.delete()
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking_message.delete()
 
-        # --- 功能 3：內容整理摘要 ---
+        # --- 功能 2：內容整理摘要 ---
         elif cmd.startswith("整理 "):
             parts = cmd.split()
             if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
@@ -441,7 +366,8 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 summary = response.output_text
-                embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
+                embed_description = summary if len(summary) <= 4096 else summary[:4093] + "..."
+                embed = discord.Embed(title=f"內容摘要：{source_type}", description=embed_description, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
                 await summary_channel.send(embed=embed)
                 await message.reply("✅ 內容摘要已經發送！")
@@ -454,79 +380,10 @@ async def on_message(message):
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ 摘要整理時發生錯誤: {e}")
+                print(f"[SUM_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} source={source_id} target={summary_channel_id} {type(e).__name__}: {e}")
+                await message.reply("❌ 整理功能發生錯誤（錯誤代碼：SUM-001），請確認權限或稍後再試。")
         
-        # --- 功能 4：搜尋查詢 ---
-        elif cmd.startswith("搜尋 "):
-            query = cmd[2:].strip()
-            thinking_message = await message.reply("🔍 搜尋中...")
-
-            try:
-                api_key = os.getenv("GEMINI_API_KEY")
-                client_gemini = genai.Client(api_key=api_key)
-
-                search_tool = Tool(google_search=GoogleSearch())
-                now = datetime.now(ZoneInfo("Asia/Taipei"))
-                response = client_gemini.models.generate_content(
-                    model="gemini-3-flash-preview",
-                    contents=[{
-                    "role": "user",
-                    "parts": [{"text":now.strftime("%Y-%m-%d %H:%M:%S")+"請用繁體回答，由於將會在DISCORD上使用，請以DISCORD的格式、字數限制來回答"+query}]
-                }],
-                config=GenerateContentConfig(
-                tools=[search_tool],
-                response_modalities=["TEXT"]
-                )
-                )
-
-                reply_text = "\n".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-                await send_chunks(message, reply_text)
-                count = record_usage("搜尋")
-                await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：gemini-3-flash-preview ")
-            
-                #else:
-                    # ✅ 正常狀況：使用 Perplexity 查詢
-                   # model_used = "sonar"
-                    #payload = {
-                        #"model": model_used,
-                        #"messages": [
-                            #{
-                                #"role": "system",
-                                #"content": "你具備豐富情緒與溝通能力，能依對話內容給予有趣回應，並以專業學科分類簡明解答問題。使用繁體中文，回答精簡有重點，控制在200字內。"
-                            #},
-                            #{"role": "user", "content": query}
-                        #],
-                        #"max_tokens": 1000,
-                        #"temperature": 1.2,
-                        #"top_p": 0.9,
-                        #"top_k": 0,
-                        #"stream": False,
-                        #"presence_penalty": 0,
-                        #"frequency_penalty": 1,
-                        #" response_format": {},
-                        #"web_search_options": {"search_context_size": "low"}
-                    #}
-                    #headers = {
-                        #"Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                        #"Content-Type": "application/json"
-                    #}
-                    #response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
-
-                    #if response.status_code == 200:
-                        #data = response.json()
-                        #reply = data["choices"][0]["message"]["content"]
-                        #await send_chunks(message, reply_text)
-
-                        #count = record_usage("搜尋")
-                        #await message.reply(f"📊 今天所有人總共使用「搜尋」功能 {count} 次，本次使用的模型：{model_used}")
-                    #else:
-                        #await message.reply(f"❌ 搜尋時發生錯誤，HTTP 狀態碼：{response.status_code}")
-                    
-            except Exception as e:
-                await message.reply(f"❌ 搜尋時發生錯誤: {e}")
-            finally:
-                await thinking_message.delete()
-        # --- 功能 5：生成圖像 ---
+        # --- 功能 3：生成圖像 ---
         elif cmd.startswith("圖片 "):
             if is_usage_exceeded("圖片", limit=15):
                 await message.reply("⚠️ 指揮官，今日圖片功能已達 15 次上限，請明日再試。")
@@ -581,19 +438,22 @@ async def on_message(message):
                     buf.seek(0)
                     # 2. 回傳到 Discord
                     await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+                total_tokens = response.usage.total_tokens
+                await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：{model_used}+gpt-image-1"
+                                    f"\n📊 token 使用量：\n"
+                                    f"- 輸入 tokens: {input_tokens}\n"
+                                    f"- 回應 tokens: {output_tokens}\n"
+                                    f"- 總 token: {total_tokens}"
+                                    )
             except Exception as e:
-                await message.reply(f"出現錯誤：{e}")
+                print(f"[IMG_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 圖片功能發生錯誤（錯誤代碼：IMG-001），請稍後再試。")
             finally:
-                await thinking.delete()
-            input_tokens = response.usage.input_tokens
-            output_tokens = response.usage.output_tokens
-            total_tokens = response.usage.total_tokens
-            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1+gpt-4.1"
-                                f"📊 token 使用量：\n"
-                                f"- 輸入 tokens: {input_tokens}\n"
-                                f"- 回應 tokens: {output_tokens}\n"
-                                f"- 總 token: {total_tokens}"
-                                )        
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking.delete()
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")
@@ -605,7 +465,6 @@ async def on_message(message):
                 pending_reset_confirmations.pop(user_id)
                 state = {
                     "summary": "",
-                    "history": [],
                     "token_accum": 0,
                     "last_response_id": None,
                     "thread_count": 0
@@ -633,23 +492,18 @@ async def on_message(message):
         elif cmd.startswith("指令選單"):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
             embed.add_field(
-                name="🧠 推理",
-                value="`!推理 <內容>`\n使用 o3-mini-high 進行純文字推理，不含網路查詢。每 10 輪會自動總結記憶。",
-                inline=False
-            )
-            embed.add_field(
                 name="❓ 問",
-                value="`!問 <內容>`\n支援圖片與 PDF 附件的問答互動。模型自動切換 GPT-4.1 / GPT-4o-mini，無網路查詢功能。",
+                value="`!問 <內容>`\n支援圖片附件問答；主模型 `gpt-5.2`，每 10 輪以 `gpt-5-nano` 做記憶摘要，並啟用網路查證。",
                 inline=False
             )
             embed.add_field(
                 name="🧹 整理",
-                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 50 則訊息生成摘要並發送至指定頻道。",
+                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n使用 `gpt-5.2` 整理近 1000 則訊息並發送至指定頻道。",
                 inline=False
             )
             embed.add_field(
-                name="🔍 搜尋",
-                value="`!搜尋 <查詢內容>`\n使用 Perplexity 進行網路查詢。若超過每日 20 次上限，將自動切換為 Gemini + Google Search。",
+                name="🎨 圖片",
+                value="`!圖片 <描述>`\n使用 `gpt-4.1 + gpt-image-1` 生成圖片（含網路查證）。",
                 inline=False
             )
             embed.add_field(

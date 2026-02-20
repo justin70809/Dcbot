@@ -363,11 +363,8 @@ def run_grok_with_tools(user_content, max_rounds=3):
     """
     active_tools = build_grok_tools(enable_external_search=True)
 
-    # --- 第一次呼叫：送出 system + 使用者訊息 ---
-    input_payload = [
-        {"role": "system", "content": ASK_INSTRUCTIONS},
-        {"role": "user", "content": user_content},
-    ]
+    # --- 第一次呼叫：送出使用者訊息 ---
+    input_payload = [{"role": "user", "content": user_content}]
     response, active_tools = create_grok_response(
         input_payload=input_payload,
         tools=active_tools,

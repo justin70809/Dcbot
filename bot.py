@@ -19,7 +19,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 DAILY_NEWS_CHANNEL_ID_RAW = os.getenv("DAILY_NEWS_CHANNEL_ID", "1354827117501612144").strip()
 DAILY_NEWS_PROMPT = os.getenv(
     "DAILY_NEWS_PROMPT",
-    "請彙整今天最重要的國際新聞，至少涵蓋政治、經濟、科技三個面向。每則新聞請附上事件重點、影響與來源查證摘要。",
+    "請彙整今天最重要的國際和國內新聞，每則新聞請附上事件重點、影響與來源查證摘要。",
 )
 
 

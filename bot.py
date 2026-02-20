@@ -305,7 +305,6 @@ def build_grok_tools(enable_external_search=True):
 def create_grok_response(input_payload, tools, previous_response_id=None):
     request_kwargs = {
         "model": GROK_MODEL,
-        "instructions": ASK_INSTRUCTIONS,
         "input": input_payload,
         "tools": tools,
         "max_output_tokens": GROK_MAX_TOKENS,
@@ -318,8 +317,9 @@ def create_grok_response(input_payload, tools, previous_response_id=None):
         return client_grok.responses.create(**request_kwargs), tools
     except Exception as e:
         error_text = str(e).lower()
-        if "reasoning" in error_text or "unknown parameter" in error_text:
+        if "reasoning" in error_text or "unknown parameter" in error_text or "instructions" in error_text:
             request_kwargs.pop("reasoning", None)
+            request_kwargs.pop("instructions", None)
             return client_grok.responses.create(**request_kwargs), tools
         raise
 
@@ -566,8 +566,9 @@ async def on_message(message):
                     f"- 總 token: {total_tokens}"
                 )
             except Exception as e:
-                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
-                await message.reply("❌ 問2 功能發生錯誤（錯誤代碼：ASK2-001），請稍後再試。")
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {error_msg}")
+                await message.reply(f"❌ 問2 功能發生錯誤\n```python\n{error_msg}\n```")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()

@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from contextlib import suppress
 
 # ===== 1. 載入環境變數與 API 金鑰 =====
 ### 🔐 載入環境變數與金鑰
@@ -301,7 +302,8 @@ async def on_message(message):
             except Exception as e:
                 await message.reply(f"❌ 問功能發生錯誤（{type(e).__name__}）: {e}")
             finally:
-                await thinking_message.delete()
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking_message.delete()
 
         # --- 功能 2：內容整理摘要 ---
         elif cmd.startswith("整理 "):
@@ -342,7 +344,8 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 summary = response.output_text
-                embed = discord.Embed(title=f"內容摘要：{source_type}", description=summary, color=discord.Color.blue())
+                embed_description = summary if len(summary) <= 4096 else summary[:4093] + "..."
+                embed = discord.Embed(title=f"內容摘要：{source_type}", description=embed_description, color=discord.Color.blue())
                 embed.set_footer(text=f"來源ID: {source_id}")
                 await summary_channel.send(embed=embed)
                 await message.reply("✅ 內容摘要已經發送！")
@@ -425,7 +428,8 @@ async def on_message(message):
             except Exception as e:
                 await message.reply(f"❌ 圖片功能發生錯誤（{type(e).__name__}）: {e}")
             finally:
-                await thinking.delete()
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking.delete()
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")

@@ -305,7 +305,6 @@ def build_grok_tools(enable_external_search=True):
 def create_grok_response(input_payload, tools, previous_response_id=None):
     request_kwargs = {
         "model": GROK_MODEL,
-        "instructions": ASK_INSTRUCTIONS,
         "input": input_payload,
         "tools": tools,
         "max_output_tokens": GROK_MAX_TOKENS,
@@ -318,8 +317,9 @@ def create_grok_response(input_payload, tools, previous_response_id=None):
         return client_grok.responses.create(**request_kwargs), tools
     except Exception as e:
         error_text = str(e).lower()
-        if "reasoning" in error_text or "unknown parameter" in error_text:
+        if "reasoning" in error_text or "unknown parameter" in error_text or "instructions" in error_text:
             request_kwargs.pop("reasoning", None)
+            request_kwargs.pop("instructions", None)
             return client_grok.responses.create(**request_kwargs), tools
         raise
 
@@ -346,46 +346,52 @@ def extract_local_function_calls(response):
 
 
 def run_grok_with_tools(user_content, max_rounds=3):
+    """
+    使用 Grok Responses API 進行多輪 tool-call 對話。
+
+    Parameters
+    ----------
+    user_content : list
+        使用者訊息內容（可含文字與圖片），格式為 Responses API content blocks。
+    max_rounds : int
+        最多執行幾輪 local function call（防止無限迴圈）。
+
+    Returns
+    -------
+    tuple[response, list]
+        最終的 API response 物件，以及實際啟用的 tools 列表。
+    """
     active_tools = build_grok_tools(enable_external_search=True)
-    response, active_tools = create_grok_chat_completion(
-        messages,
-        active_tools,
-        tool_choice={"type": "function", "function": {"name": "web_search"}},
+
+    # --- 第一次呼叫：送出 system + 使用者訊息 ---
+    input_payload = [
+        {"role": "system", "content": ASK_INSTRUCTIONS},
+        {"role": "user", "content": user_content},
+    ]
+    response, active_tools = create_grok_response(
+        input_payload=input_payload,
+        tools=active_tools,
+        previous_response_id=None,
     )
 
+    # --- 多輪 tool-call 處理 ---
     for _ in range(max_rounds):
         local_calls = extract_local_function_calls(response)
         if not local_calls:
+            # 沒有需要本地執行的 function call，直接回傳
             return response, active_tools
 
-        local_tool_calls = []
-        for tool_call in tool_calls:
-            function_data = getattr(tool_call, "function", None)
-            tool_name = getattr(function_data, "name", "")
-            if tool_name == "get_taipei_time":
-                local_tool_calls.append(tool_call)
-
-        # web_search / x_search 等 built-in 工具由模型端處理，不要在本地注入 unknown tool 錯誤。
-        if not local_tool_calls:
-            return response, active_tools
-
-        messages.append({
-            "role": "assistant",
-            "content": assistant_message.content or "",
-            "tool_calls": [build_tool_call_payload(tc) for tc in local_tool_calls],
-        })
-
-        for tool_call in local_tool_calls:
-            function_data = getattr(tool_call, "function", None)
-            tool_name = getattr(function_data, "name", "")
-            tool_args = getattr(function_data, "arguments", "{}")
-            tool_result = execute_grok_tool(tool_name, tool_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": getattr(tool_call, "id", ""),
-                "content": tool_result,
+        # 執行每個 local function call 並收集結果
+        function_outputs = []
+        for call in local_calls:
+            result = execute_grok_tool(call["name"], call["arguments"])
+            function_outputs.append({
+                "type": "function_call_output",
+                "call_id": call["call_id"],
+                "output": result,
             })
 
+        # 將 function 結果送回，繼續對話
         response, active_tools = create_grok_response(
             input_payload=function_outputs,
             tools=active_tools,
@@ -563,8 +569,9 @@ async def on_message(message):
                     f"- 總 token: {total_tokens}"
                 )
             except Exception as e:
-                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
-                await message.reply("❌ 問2 功能發生錯誤（錯誤代碼：ASK2-001），請稍後再試。")
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {error_msg}")
+                await message.reply(f"❌ 問2 功能發生錯誤\n```python\n{error_msg}\n```")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()

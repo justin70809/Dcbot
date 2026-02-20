@@ -215,6 +215,8 @@ ASK_INSTRUCTIONS = """
   「指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」
 """.strip()
 
+GROK_MODEL = "grok-4-1-fast-reasoning"
+
 
 def build_ask_user_text(prompt, current_time, summary, is_first_turn):
     first_turn_flag = "yes" if is_first_turn else "no"
@@ -227,6 +229,34 @@ def build_ask_user_text(prompt, current_time, summary, is_first_turn):
         f"</context>\n\n"
         f"<user_query>\n{prompt}\n</user_query>"
     )
+
+
+def extract_grok_reply_text(response):
+    message_content = response.choices[0].message.content
+    if isinstance(message_content, str):
+        return message_content
+    if isinstance(message_content, list):
+        parts = []
+        for item in message_content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+            else:
+                text = getattr(item, "text", None) or getattr(item, "content", None)
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip()
+    return ""
+
+
+def get_grok_usage(usage):
+    if not usage:
+        return 0, 0, 0
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    total_tokens = getattr(usage, "total_tokens", None)
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    return prompt_tokens, completion_tokens, total_tokens
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -366,14 +396,10 @@ async def on_message(message):
                     await message.reply("⚠️ 未設定 XAI_API_KEY，暫時無法使用 !問2。")
                     continue
 
-                count = record_usage("問2")
-                model_used = "grok-4-1-fast-reasoning"
+                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+                state = load_user_memory(user_id)
                 time_now = datetime.now(ZoneInfo("Asia/Taipei"))
-                user_text = (
-                    f"time=Asia/Taipei {time_now.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"請使用繁體中文回答。\n\n"
-                    f"{prompt}"
-                )
+                user_text = build_ask_user_text(prompt, time_now, state.get("summary", ""), False)
 
                 user_content = [{"type": "text", "text": user_text}]
                 for attachment in message.attachments[:10]:
@@ -383,24 +409,27 @@ async def on_message(message):
                             "image_url": {"url": attachment.proxy_url}
                         })
 
+                count = record_usage("問2")
+                model_used = GROK_MODEL
                 response = client_grok.chat.completions.create(
                     model=model_used,
                     messages=[
                         {"role": "system", "content": ASK_INSTRUCTIONS},
                         {"role": "user", "content": user_content},
                     ],
+                    max_tokens=4096,
                 )
 
-                replytext = response.choices[0].message.content or "（Grok 沒有回傳可顯示內容）"
-                usage = response.usage
+                replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
+                prompt_tokens, completion_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
 
                 await send_chunks(message, replytext)
                 await message.reply(
                     f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
                     f"📊 token 使用量：\n"
-                    f"- 輸入 tokens: {usage.prompt_tokens}\n"
-                    f"- 回應 tokens: {usage.completion_tokens}\n"
-                    f"- 總 token: {usage.total_tokens}"
+                    f"- 輸入 tokens: {prompt_tokens}\n"
+                    f"- 回應 tokens: {completion_tokens}\n"
+                    f"- 總 token: {total_tokens}"
                 )
             except Exception as e:
                 print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")

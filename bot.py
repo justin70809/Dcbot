@@ -315,12 +315,12 @@ def build_grok_tools(enable_external_search=True):
     return tools
 
 
-def create_grok_chat_completion(messages, tools):
+def create_grok_chat_completion(messages, tools, tool_choice="auto"):
     request_kwargs = {
         "model": GROK_MODEL,
         "messages": messages,
         "tools": tools,
-        "tool_choice": "auto",
+        "tool_choice": tool_choice,
         "max_tokens": GROK_MAX_TOKENS,
         "reasoning_effort": GROK_REASONING_EFFORT,
     }
@@ -337,10 +337,19 @@ def create_grok_chat_completion(messages, tools):
             except Exception as inner_e:
                 error_text = str(inner_e).lower()
 
+        # 回退 1.5：若強制 tool_choice 失敗，一律退回 auto
+        if request_kwargs.get("tool_choice") != "auto":
+            request_kwargs["tool_choice"] = "auto"
+            try:
+                return client_grok.chat.completions.create(**request_kwargs), tools
+            except Exception as inner_e:
+                error_text = str(inner_e).lower()
+
         # 回退 2：若 built-in 搜尋工具不支援，保留 function tool
         if any(keyword in error_text for keyword in ["web_search", "x_search", "tool", "invalid"]) and tools != GROK_FUNCTION_TOOLS:
             fallback_tools = list(GROK_FUNCTION_TOOLS)
             request_kwargs["tools"] = fallback_tools
+            request_kwargs["tool_choice"] = "auto"
             request_kwargs.pop("reasoning_effort", None)
             return client_grok.chat.completions.create(**request_kwargs), fallback_tools
 
@@ -349,7 +358,26 @@ def create_grok_chat_completion(messages, tools):
 
 def run_grok_with_tools(messages, max_rounds=3):
     active_tools = build_grok_tools(enable_external_search=True)
-    response, active_tools = create_grok_chat_completion(messages, active_tools)
+    initial_tool_choices = [
+        {"type": "function", "function": {"name": "web_search"}},
+        {"type": "function", "function": {"name": "x_search"}},
+        "auto",
+    ]
+
+    response = None
+    last_error = None
+    for choice in initial_tool_choices:
+        try:
+            response, active_tools = create_grok_chat_completion(messages, active_tools, tool_choice=choice)
+            last_error = None
+            break
+        except Exception as e:
+            last_error = e
+
+    if response is None:
+        if last_error:
+            raise last_error
+        response, active_tools = create_grok_chat_completion(messages, active_tools)
 
     for _ in range(max_rounds):
         assistant_message = response.choices[0].message

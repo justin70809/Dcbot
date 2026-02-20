@@ -225,14 +225,12 @@ GROK_BUILTIN_TOOLS = [
 GROK_FUNCTION_TOOLS = [
     {
         "type": "function",
-        "function": {
-            "name": "get_taipei_time",
-            "description": "取得目前台北時間（Asia/Taipei）。",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            },
+        "name": "get_taipei_time",
+        "description": "取得目前台北時間（Asia/Taipei）。",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
         },
     }
 ]
@@ -252,43 +250,32 @@ def build_ask_user_text(prompt, current_time, summary, is_first_turn):
 
 
 def extract_grok_reply_text(response):
-    message_content = response.choices[0].message.content
-    if isinstance(message_content, str):
-        return message_content
-    if isinstance(message_content, list):
-        parts = []
-        for item in message_content:
-            if isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-            else:
-                text = getattr(item, "text", None) or getattr(item, "content", None)
-            if text:
-                parts.append(text)
-        return "\n".join(parts).strip()
-    return ""
+    text = getattr(response, "output_text", "") or ""
+    if text:
+        return text
+
+    parts = []
+    for item in getattr(response, "output", []) or []:
+        content = getattr(item, "content", None)
+        if isinstance(content, list):
+            for piece in content:
+                piece_type = getattr(piece, "type", None) or (piece.get("type") if isinstance(piece, dict) else None)
+                if piece_type in {"output_text", "text"}:
+                    piece_text = getattr(piece, "text", None) or (piece.get("text") if isinstance(piece, dict) else None)
+                    if piece_text:
+                        parts.append(piece_text)
+    return "\n".join(parts).strip()
 
 
 def get_grok_usage(usage):
     if not usage:
         return 0, 0, 0
-    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    input_tokens = getattr(usage, "input_tokens", 0) or 0
+    output_tokens = getattr(usage, "output_tokens", 0) or 0
     total_tokens = getattr(usage, "total_tokens", None)
     if total_tokens is None:
-        total_tokens = prompt_tokens + completion_tokens
-    return prompt_tokens, completion_tokens, total_tokens
-
-
-def build_tool_call_payload(tool_call):
-    function_data = getattr(tool_call, "function", None)
-    return {
-        "id": getattr(tool_call, "id", ""),
-        "type": "function",
-        "function": {
-            "name": getattr(function_data, "name", ""),
-            "arguments": getattr(function_data, "arguments", "{}"),
-        },
-    }
+        total_tokens = input_tokens + output_tokens
+    return input_tokens, output_tokens, total_tokens
 
 
 def execute_grok_tool(tool_name, tool_args_raw):
@@ -315,87 +302,75 @@ def build_grok_tools(enable_external_search=True):
     return tools
 
 
-def create_grok_chat_completion(messages, tools, tool_choice="auto"):
+def create_grok_response(input_payload, tools, previous_response_id=None):
     request_kwargs = {
         "model": GROK_MODEL,
-        "messages": messages,
+        "instructions": ASK_INSTRUCTIONS,
+        "input": input_payload,
         "tools": tools,
-        "tool_choice": tool_choice,
-        "max_tokens": GROK_MAX_TOKENS,
-        "reasoning_effort": GROK_REASONING_EFFORT,
+        "max_output_tokens": GROK_MAX_TOKENS,
+        "reasoning": {"effort": GROK_REASONING_EFFORT},
     }
+    if previous_response_id:
+        request_kwargs["previous_response_id"] = previous_response_id
 
     try:
-        return client_grok.chat.completions.create(**request_kwargs), tools
+        return client_grok.responses.create(**request_kwargs), tools
     except Exception as e:
         error_text = str(e).lower()
-        # 回退 1：移除可能不支援的 reasoning 參數
-        if "reasoning_effort" in error_text or "unknown parameter" in error_text:
-            request_kwargs.pop("reasoning_effort", None)
-            try:
-                return client_grok.chat.completions.create(**request_kwargs), tools
-            except Exception as inner_e:
-                error_text = str(inner_e).lower()
-
-        # 回退 1.5：若 tool_choice 格式不被支援，退回 auto
-        if "tool_choice" in error_text and request_kwargs.get("tool_choice") != "auto":
-            request_kwargs["tool_choice"] = "auto"
-            return client_grok.chat.completions.create(**request_kwargs), tools
-
-        # 回退 2：若 built-in 搜尋工具不支援，保留 function tool
-        if any(keyword in error_text for keyword in ["web_search", "x_search", "tool", "invalid"]) and tools != GROK_FUNCTION_TOOLS:
-            fallback_tools = list(GROK_FUNCTION_TOOLS)
-            request_kwargs["tools"] = fallback_tools
-            request_kwargs["tool_choice"] = "auto"
-            request_kwargs.pop("reasoning_effort", None)
-            return client_grok.chat.completions.create(**request_kwargs), fallback_tools
-
+        if "reasoning" in error_text or "unknown parameter" in error_text:
+            request_kwargs.pop("reasoning", None)
+            return client_grok.responses.create(**request_kwargs), tools
         raise
 
 
-def run_grok_with_tools(messages, max_rounds=3):
+def extract_local_function_calls(response):
+    calls = []
+    for item in getattr(response, "output", []) or []:
+        item_type = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
+        if item_type != "function_call":
+            continue
+
+        name = getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else "")
+        if name != "get_taipei_time":
+            continue
+
+        call_id = getattr(item, "call_id", None) or (item.get("call_id") if isinstance(item, dict) else "")
+        arguments = getattr(item, "arguments", None) or (item.get("arguments") if isinstance(item, dict) else "{}")
+        calls.append({
+            "call_id": call_id,
+            "name": name,
+            "arguments": arguments,
+        })
+    return calls
+
+
+def run_grok_with_tools(user_content, max_rounds=3):
     active_tools = build_grok_tools(enable_external_search=True)
-    forced_tool_choices = [
-        {"type": "function", "function": {"name": "web_search"}},
-        {"type": "function", "function": {"name": "x_search"}},
-        "auto",
-    ]
-
-    response = None
-    for forced_choice in forced_tool_choices:
-        response, active_tools = create_grok_chat_completion(messages, active_tools, tool_choice=forced_choice)
-        assistant_message = response.choices[0].message
-        assistant_text = assistant_message.content or ""
-        if assistant_text:
-            messages.append({"role": "assistant", "content": assistant_text})
-
-    if response is None:
-        response, active_tools = create_grok_chat_completion(messages, active_tools)
+    response, active_tools = create_grok_response(
+        input_payload=[{"role": "user", "content": user_content}],
+        tools=active_tools,
+    )
 
     for _ in range(max_rounds):
-        assistant_message = response.choices[0].message
-        tool_calls = getattr(assistant_message, "tool_calls", None) or []
-        if not tool_calls:
+        local_calls = extract_local_function_calls(response)
+        if not local_calls:
             return response, active_tools
 
-        messages.append({
-            "role": "assistant",
-            "content": assistant_message.content or "",
-            "tool_calls": [build_tool_call_payload(tc) for tc in tool_calls],
-        })
-
-        for tool_call in tool_calls:
-            function_data = getattr(tool_call, "function", None)
-            tool_name = getattr(function_data, "name", "")
-            tool_args = getattr(function_data, "arguments", "{}")
-            tool_result = execute_grok_tool(tool_name, tool_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": getattr(tool_call, "id", ""),
-                "content": tool_result,
+        function_outputs = []
+        for call in local_calls:
+            tool_result = execute_grok_tool(call["name"], call["arguments"])
+            function_outputs.append({
+                "type": "function_call_output",
+                "call_id": call["call_id"],
+                "output": tool_result,
             })
 
-        response, active_tools = create_grok_chat_completion(messages, active_tools)
+        response, active_tools = create_grok_response(
+            input_payload=function_outputs,
+            tools=active_tools,
+            previous_response_id=getattr(response, "id", None),
+        )
 
     return response, active_tools
 
@@ -552,14 +527,10 @@ async def on_message(message):
 
                 count = record_usage("問2")
                 model_used = GROK_MODEL
-                messages = [
-                    {"role": "system", "content": ASK_INSTRUCTIONS},
-                    {"role": "user", "content": user_content},
-                ]
-                response, active_tools = run_grok_with_tools(messages)
+                response, active_tools = run_grok_with_tools(user_content)
 
                 replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
-                prompt_tokens, completion_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
+                input_tokens, output_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
 
                 tool_types = ", ".join(t.get("type", "?") for t in active_tools)
                 await send_chunks(message, replytext)
@@ -567,8 +538,8 @@ async def on_message(message):
                     f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
                     f"🧰 啟用工具：{tool_types}\n"
                     f"📊 token 使用量：\n"
-                    f"- 輸入 tokens: {prompt_tokens}\n"
-                    f"- 回應 tokens: {completion_tokens}\n"
+                    f"- 輸入 tokens: {input_tokens}\n"
+                    f"- 回應 tokens: {output_tokens}\n"
                     f"- 總 token: {total_tokens}"
                 )
             except Exception as e:

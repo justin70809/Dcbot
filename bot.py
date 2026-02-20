@@ -13,6 +13,7 @@ import time
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+XAI_API_KEY = os.getenv("XAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
@@ -134,7 +135,7 @@ def init_db():
             )
         """)
 
-        for feature in ["問", "整理", "圖片"]:
+        for feature in ["問", "問2", "整理", "圖片"]:
             cur.execute("""
                 INSERT INTO feature_usage (feature, count, date)
                 VALUES (%s, 0, CURRENT_DATE)
@@ -186,6 +187,7 @@ def is_usage_exceeded(feature_name, limit=20):
         get_db_pool().putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
+client_grok = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if XAI_API_KEY else None
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
@@ -350,6 +352,59 @@ async def on_message(message):
             except Exception as e:
                 print(f"[ASK_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
                 await message.reply("❌ 問功能發生錯誤（錯誤代碼：ASK-001），請稍後再試。")
+            finally:
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking_message.delete()
+
+        # --- 功能 1-2：問答（改用 Grok） ---
+        elif cmd.startswith("問2 "):
+            prompt = cmd[3:].strip()
+            thinking_message = await message.reply("🧠 Grok 思考中...")
+
+            try:
+                if not client_grok:
+                    await message.reply("⚠️ 未設定 XAI_API_KEY，暫時無法使用 !問2。")
+                    continue
+
+                count = record_usage("問2")
+                model_used = "grok-4-1-fast-reasoning"
+                time_now = datetime.now(ZoneInfo("Asia/Taipei"))
+                user_text = (
+                    f"time=Asia/Taipei {time_now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"請使用繁體中文回答。\n\n"
+                    f"{prompt}"
+                )
+
+                user_content = [{"type": "text", "text": user_text}]
+                for attachment in message.attachments[:10]:
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": attachment.proxy_url}
+                        })
+
+                response = client_grok.chat.completions.create(
+                    model=model_used,
+                    messages=[
+                        {"role": "system", "content": ASK_INSTRUCTIONS},
+                        {"role": "user", "content": user_content},
+                    ],
+                )
+
+                replytext = response.choices[0].message.content or "（Grok 沒有回傳可顯示內容）"
+                usage = response.usage
+
+                await send_chunks(message, replytext)
+                await message.reply(
+                    f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
+                    f"📊 token 使用量：\n"
+                    f"- 輸入 tokens: {usage.prompt_tokens}\n"
+                    f"- 回應 tokens: {usage.completion_tokens}\n"
+                    f"- 總 token: {usage.total_tokens}"
+                )
+            except Exception as e:
+                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 問2 功能發生錯誤（錯誤代碼：ASK2-001），請稍後再試。")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()
@@ -521,6 +576,11 @@ async def on_message(message):
             embed.add_field(
                 name="❓ 問",
                 value="`!問 <內容>`\n支援圖片附件問答；主模型 `gpt-5.2`，每 10 輪以 `gpt-5-nano` 做記憶摘要，並啟用網路查證。",
+                inline=False
+            )
+            embed.add_field(
+                name="🧠 問2（Grok）",
+                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`（需設定 `XAI_API_KEY`）。",
                 inline=False
             )
             embed.add_field(

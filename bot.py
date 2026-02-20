@@ -4,7 +4,6 @@ from openai import OpenAI
 import os, base64, io
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
-import tiktoken
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -12,8 +11,17 @@ from zoneinfo import ZoneInfo
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-#PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def require_env(name, value):
+    if not value:
+        raise RuntimeError(f"缺少必要環境變數：{name}")
+
+
+require_env("DISCORD_TOKEN", DISCORD_TOKEN)
+require_env("OPENAI_API_KEY", OPENAI_API_KEY)
+require_env("DATABASE_URL", DATABASE_URL)
 
 
 ### 🛢️ PostgreSQL 資料庫連線池設定
@@ -24,6 +32,7 @@ db_pool = pool.SimpleConnectionPool(
     cursor_factory=RealDictCursor
 )
 
+
 def get_db_connection():
     return db_pool.getconn()
 
@@ -32,117 +41,127 @@ def get_db_connection():
 
 def load_user_memory(user_id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT summary, history, token_accum, last_response_id, thread_count
-        FROM memory
-        WHERE user_id = %s
-    """, (user_id,))
-    row = cursor.fetchone()
-    db_pool.putconn(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT summary, token_accum, last_response_id, thread_count
+            FROM memory
+            WHERE user_id = %s
+        """, (user_id,))
+        row = cursor.fetchone()
+    finally:
+        db_pool.putconn(conn)
 
     if row:
         return {
             "summary": row["summary"],
-            "history": row["history"],
             "token_accum": row["token_accum"],
             "last_response_id": row["last_response_id"],
-            "thread_count": row["thread_count"] or 0
+            "thread_count": row["thread_count"] or 0,
         }
-    else:
-        return {
-            "summary": "",
-            "history": [],
-            "token_accum": 0,
-            "last_response_id": None,
-            "thread_count": 0
-        }
+
+    return {
+        "summary": "",
+        "token_accum": 0,
+        "last_response_id": None,
+        "thread_count": 0,
+    }
+
 
 def save_user_memory(user_id, state):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET
-            summary = EXCLUDED.summary,
-            token_accum = EXCLUDED.token_accum,
-            last_response_id = EXCLUDED.last_response_id,
-            thread_count = EXCLUDED.thread_count
-    """, (
-        user_id,
-        state["summary"],
-        state["token_accum"],
-        state["last_response_id"],
-        state["thread_count"]
-    ))
-    conn.commit()
-    db_pool.putconn(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO memory (user_id, summary, token_accum, last_response_id, thread_count)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                summary = EXCLUDED.summary,
+                token_accum = EXCLUDED.token_accum,
+                last_response_id = EXCLUDED.last_response_id,
+                thread_count = EXCLUDED.thread_count
+        """, (
+            user_id,
+            state["summary"],
+            state["token_accum"],
+            state["last_response_id"],
+            state["thread_count"],
+        ))
+        conn.commit()
+    finally:
+        db_pool.putconn(conn)
 
 
 ### 🏗️ 初始資料表建構與功能使用記錄統計
 def init_db():
     conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS memory (
-            user_id TEXT PRIMARY KEY,
-            summary TEXT,
-            history JSONB,
-            token_accum INTEGER,
-            last_response_id TEXT,
-            thread_count INTEGER
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS feature_usage (
-            feature TEXT PRIMARY KEY,
-            count INTEGER NOT NULL,
-            date DATE NOT NULL
-        )
-    """)
-
-    for feature in ["問", "整理", "圖片"]:
+    try:
+        cur = conn.cursor()
         cur.execute("""
-            INSERT INTO feature_usage (feature, count, date)
-            VALUES (%s, 0, CURRENT_DATE)
-            ON CONFLICT (feature) DO NOTHING
-        """, (feature,))
+            CREATE TABLE IF NOT EXISTS memory (
+                user_id TEXT PRIMARY KEY,
+                summary TEXT,
+                token_accum INTEGER,
+                last_response_id TEXT,
+                thread_count INTEGER
+            )
+        """)
 
-    conn.commit()
-    db_pool.putconn(conn)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS feature_usage (
+                feature TEXT PRIMARY KEY,
+                count INTEGER NOT NULL,
+                date DATE NOT NULL
+            )
+        """)
+
+        for feature in ["問", "整理", "圖片"]:
+            cur.execute("""
+                INSERT INTO feature_usage (feature, count, date)
+                VALUES (%s, 0, CURRENT_DATE)
+                ON CONFLICT (feature) DO NOTHING
+            """, (feature,))
+
+        conn.commit()
+    finally:
+        db_pool.putconn(conn)
+
 
 def record_usage(feature_name):
     conn = get_db_connection()
-    cur = conn.cursor()
-    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
-    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
-    row = cur.fetchone()
-    if row:
-        if row["date"] != today:
-            cur.execute("UPDATE feature_usage SET count = 1, date = %s WHERE feature = %s", (today, feature_name))
+    try:
+        cur = conn.cursor()
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
+        row = cur.fetchone()
+        if row:
+            if row["date"] != today:
+                cur.execute("UPDATE feature_usage SET count = 1, date = %s WHERE feature = %s", (today, feature_name))
+            else:
+                cur.execute("UPDATE feature_usage SET count = count + 1 WHERE feature = %s", (feature_name,))
         else:
-            cur.execute("UPDATE feature_usage SET count = count + 1 WHERE feature = %s", (feature_name,))
-    else:
-        cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
-    cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
-    updated = cur.fetchone()["count"]
-    conn.commit()
-    db_pool.putconn(conn)
-    return updated
+            cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
+
+        cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
+        updated = cur.fetchone()["count"]
+        conn.commit()
+        return updated
+    finally:
+        db_pool.putconn(conn)
+
 
 def is_usage_exceeded(feature_name, limit=20):
     conn = get_db_connection()
-    cur = conn.cursor()
-    today = datetime.now(ZoneInfo("Asia/Taipei")).date()
-    cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
-    row = cur.fetchone()
-    db_pool.putconn(conn)
-    if row:
-        return row["date"] == today and row["count"] >= limit
-    return False
+    try:
+        cur = conn.cursor()
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
+        row = cur.fetchone()
+        if row:
+            return row["date"] == today and row["count"] >= limit
+        return False
+    finally:
+        db_pool.putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
@@ -159,12 +178,6 @@ async def on_ready():
     init_db()
     print(f'✅ Bot 登入成功：{client.user}')
 
-
-### 🔢 Token 計算與摘要輔助
-ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
-
-def count_tokens(text):
-    return len(ENCODER.encode(text))
 
 async def send_chunks(message, text, chunk_size=2000):
     """Send text in chunks not exceeding Discord's 2000 character limit."""
@@ -424,7 +437,6 @@ async def on_message(message):
                 pending_reset_confirmations.pop(user_id)
                 state = {
                     "summary": "",
-                    "history": [],
                     "token_accum": 0,
                     "last_response_id": None,
                     "thread_count": 0

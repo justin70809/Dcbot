@@ -347,11 +347,10 @@ def extract_local_function_calls(response):
 
 def run_grok_with_tools(user_content, max_rounds=3):
     active_tools = build_grok_tools(enable_external_search=True)
-
-    # 第一輪呼叫
-    response, active_tools = create_grok_response(
-        input_payload=[{"role": "user", "content": user_content}],
-        tools=active_tools,
+    response, active_tools = create_grok_chat_completion(
+        messages,
+        active_tools,
+        tool_choice={"type": "function", "function": {"name": "web_search"}},
     )
 
     for _ in range(max_rounds):
@@ -359,23 +358,34 @@ def run_grok_with_tools(user_content, max_rounds=3):
         if not local_calls:
             return response, active_tools
 
-        # 執行本地 function call 並組裝結果
-        function_outputs = []
-        for call in local_calls:
-            call_id = call.get("call_id")
-            if not call_id:
-                continue
-            result = execute_grok_tool(call["name"], call["arguments"])
-            function_outputs.append({
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": result,
-            })
+        local_tool_calls = []
+        for tool_call in tool_calls:
+            function_data = getattr(tool_call, "function", None)
+            tool_name = getattr(function_data, "name", "")
+            if tool_name == "get_taipei_time":
+                local_tool_calls.append(tool_call)
 
-        if not function_outputs:
+        # web_search / x_search 等 built-in 工具由模型端處理，不要在本地注入 unknown tool 錯誤。
+        if not local_tool_calls:
             return response, active_tools
 
-        # 帶著 function 結果繼續對話
+        messages.append({
+            "role": "assistant",
+            "content": assistant_message.content or "",
+            "tool_calls": [build_tool_call_payload(tc) for tc in local_tool_calls],
+        })
+
+        for tool_call in local_tool_calls:
+            function_data = getattr(tool_call, "function", None)
+            tool_name = getattr(function_data, "name", "")
+            tool_args = getattr(function_data, "arguments", "{}")
+            tool_result = execute_grok_tool(tool_name, tool_args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": getattr(tool_call, "id", ""),
+                "content": tool_result,
+            })
+
         response, active_tools = create_grok_response(
             input_payload=function_outputs,
             tools=active_tools,

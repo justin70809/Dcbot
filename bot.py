@@ -501,19 +501,20 @@ async def on_message(message):
                     buf.seek(0)
                     # 2. 回傳到 Discord
                     await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
+
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+                total_tokens = response.usage.total_tokens
+                await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1+gpt-4.1"
+                                    f"\n📊 token 使用量：\n"
+                                    f"- 輸入 tokens: {input_tokens}\n"
+                                    f"- 回應 tokens: {output_tokens}\n"
+                                    f"- 總 token: {total_tokens}"
+                                    )
             except Exception as e:
                 await message.reply(f"出現錯誤：{e}")
             finally:
                 await thinking.delete()
-            input_tokens = response.usage.input_tokens
-            output_tokens = response.usage.output_tokens
-            total_tokens = response.usage.total_tokens
-            await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：gpt-image-1+gpt-4.1"
-                                f"📊 token 使用量：\n"
-                                f"- 輸入 tokens: {input_tokens}\n"
-                                f"- 回應 tokens: {output_tokens}\n"
-                                f"- 總 token: {total_tokens}"
-                                )        
         elif cmd.startswith("重置記憶"):
             user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
             await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")
@@ -554,17 +555,17 @@ async def on_message(message):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
             embed.add_field(
                 name="🧠 推理",
-                value="`!推理 <內容>`\n使用 o3-mini-high 進行純文字推理，不含網路查詢。每 10 輪會自動總結記憶。",
+                value="`!推理 <內容>`\n使用 o3 進行純文字推理，不含網路查詢。每 5 輪會自動總結記憶。",
                 inline=False
             )
             embed.add_field(
                 name="❓ 問",
-                value="`!問 <內容>`\n支援圖片與 PDF 附件的問答互動。模型自動切換 GPT-4.1 / GPT-4o-mini，無網路查詢功能。",
+                value="`!問 <內容>`\n支援圖片附件的問答互動，使用 gpt-5.2，無網路查詢功能。",
                 inline=False
             )
             embed.add_field(
                 name="🧹 整理",
-                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 50 則訊息生成摘要並發送至指定頻道。",
+                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n整理近 1000 則訊息生成摘要並發送至指定頻道。",
                 inline=False
             )
             embed.add_field(

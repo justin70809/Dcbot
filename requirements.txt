@@ -1,9 +1,4 @@
 discord.py
 openai
-requests
-python-dotenv
 psycopg2-binary
-PyMuPDF
 tiktoken
-google-genai
-Pillow

@@ -355,22 +355,11 @@ def create_grok_chat_completion(messages, tools, tool_choice="auto"):
 
 def run_grok_with_tools(messages, max_rounds=3):
     active_tools = build_grok_tools(enable_external_search=True)
-    forced_tool_choices = [
-        {"type": "function", "function": {"name": "web_search"}},
-        {"type": "function", "function": {"name": "x_search"}},
-        "auto",
-    ]
-
-    response = None
-    for forced_choice in forced_tool_choices:
-        response, active_tools = create_grok_chat_completion(messages, active_tools, tool_choice=forced_choice)
-        assistant_message = response.choices[0].message
-        assistant_text = assistant_message.content or ""
-        if assistant_text:
-            messages.append({"role": "assistant", "content": assistant_text})
-
-    if response is None:
-        response, active_tools = create_grok_chat_completion(messages, active_tools)
+    response, active_tools = create_grok_chat_completion(
+        messages,
+        active_tools,
+        tool_choice={"type": "function", "function": {"name": "web_search"}},
+    )
 
     for _ in range(max_rounds):
         assistant_message = response.choices[0].message
@@ -378,13 +367,24 @@ def run_grok_with_tools(messages, max_rounds=3):
         if not tool_calls:
             return response, active_tools
 
+        local_tool_calls = []
+        for tool_call in tool_calls:
+            function_data = getattr(tool_call, "function", None)
+            tool_name = getattr(function_data, "name", "")
+            if tool_name == "get_taipei_time":
+                local_tool_calls.append(tool_call)
+
+        # web_search / x_search 等 built-in 工具由模型端處理，不要在本地注入 unknown tool 錯誤。
+        if not local_tool_calls:
+            return response, active_tools
+
         messages.append({
             "role": "assistant",
             "content": assistant_message.content or "",
-            "tool_calls": [build_tool_call_payload(tc) for tc in tool_calls],
+            "tool_calls": [build_tool_call_payload(tc) for tc in local_tool_calls],
         })
 
-        for tool_call in tool_calls:
+        for tool_call in local_tool_calls:
             function_data = getattr(tool_call, "function", None)
             tool_name = getattr(function_data, "name", "")
             tool_args = getattr(function_data, "arguments", "{}")

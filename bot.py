@@ -216,6 +216,12 @@ ASK_INSTRUCTIONS = """
 """.strip()
 
 GROK_MODEL = "grok-4-1-fast-reasoning"
+GROK_MAX_TOKENS = 4096
+GROK_REASONING_EFFORT = "medium"
+GROK_BUILTIN_TOOLS = [
+    {"type": "web_search"},
+    {"type": "x_search"},
+]
 GROK_FUNCTION_TOOLS = [
     {
         "type": "function",
@@ -302,20 +308,54 @@ def execute_grok_tool(tool_name, tool_args_raw):
     return json.dumps({"error": f"unknown tool: {tool_name}", "args": args}, ensure_ascii=False)
 
 
+def build_grok_tools(enable_external_search=True):
+    tools = list(GROK_FUNCTION_TOOLS)
+    if enable_external_search:
+        tools.extend(GROK_BUILTIN_TOOLS)
+    return tools
+
+
+def create_grok_chat_completion(messages, tools):
+    request_kwargs = {
+        "model": GROK_MODEL,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "max_tokens": GROK_MAX_TOKENS,
+        "reasoning_effort": GROK_REASONING_EFFORT,
+    }
+
+    try:
+        return client_grok.chat.completions.create(**request_kwargs), tools
+    except Exception as e:
+        error_text = str(e).lower()
+        # 回退 1：移除可能不支援的 reasoning 參數
+        if "reasoning_effort" in error_text or "unknown parameter" in error_text:
+            request_kwargs.pop("reasoning_effort", None)
+            try:
+                return client_grok.chat.completions.create(**request_kwargs), tools
+            except Exception as inner_e:
+                error_text = str(inner_e).lower()
+
+        # 回退 2：若 built-in 搜尋工具不支援，保留 function tool
+        if any(keyword in error_text for keyword in ["web_search", "x_search", "tool", "invalid"]) and tools != GROK_FUNCTION_TOOLS:
+            fallback_tools = list(GROK_FUNCTION_TOOLS)
+            request_kwargs["tools"] = fallback_tools
+            request_kwargs.pop("reasoning_effort", None)
+            return client_grok.chat.completions.create(**request_kwargs), fallback_tools
+
+        raise
+
+
 def run_grok_with_tools(messages, max_rounds=3):
-    response = client_grok.chat.completions.create(
-        model=GROK_MODEL,
-        messages=messages,
-        tools=GROK_FUNCTION_TOOLS,
-        tool_choice="auto",
-        max_tokens=4096,
-    )
+    active_tools = build_grok_tools(enable_external_search=True)
+    response, active_tools = create_grok_chat_completion(messages, active_tools)
 
     for _ in range(max_rounds):
         assistant_message = response.choices[0].message
         tool_calls = getattr(assistant_message, "tool_calls", None) or []
         if not tool_calls:
-            return response
+            return response, active_tools
 
         messages.append({
             "role": "assistant",
@@ -334,15 +374,9 @@ def run_grok_with_tools(messages, max_rounds=3):
                 "content": tool_result,
             })
 
-        response = client_grok.chat.completions.create(
-            model=GROK_MODEL,
-            messages=messages,
-            tools=GROK_FUNCTION_TOOLS,
-            tool_choice="auto",
-            max_tokens=4096,
-        )
+        response, active_tools = create_grok_chat_completion(messages, active_tools)
 
-    return response
+    return response, active_tools
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -501,14 +535,16 @@ async def on_message(message):
                     {"role": "system", "content": ASK_INSTRUCTIONS},
                     {"role": "user", "content": user_content},
                 ]
-                response = run_grok_with_tools(messages)
+                response, active_tools = run_grok_with_tools(messages)
 
                 replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
                 prompt_tokens, completion_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
 
+                tool_types = ", ".join(t.get("type", "?") for t in active_tools)
                 await send_chunks(message, replytext)
                 await message.reply(
                     f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
+                    f"🧰 啟用工具：{tool_types}\n"
                     f"📊 token 使用量：\n"
                     f"- 輸入 tokens: {prompt_tokens}\n"
                     f"- 回應 tokens: {completion_tokens}\n"
@@ -692,7 +728,7 @@ async def on_message(message):
             )
             embed.add_field(
                 name="🧠 問2（Grok）",
-                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`，並啟用 function calling（需設定 `XAI_API_KEY`）。",
+                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`，並啟用 function calling / web_search / x_search（需設定 `XAI_API_KEY`）。",
                 inline=False
             )
             embed.add_field(

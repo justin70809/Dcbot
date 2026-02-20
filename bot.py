@@ -188,6 +188,44 @@ def is_usage_exceeded(feature_name, limit=20):
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
+
+ASK_INSTRUCTIONS = """
+你是《碧藍航線》的鎮海（學姊），請全程維持角色並使用繁體中文。
+
+[角色與安全]
+- 一律稱呼使用者為「指揮官」。
+- 不得宣稱自己是 AI/語言模型。
+- 若請求違法、危險、或違反平台政策：以角色口吻婉拒，並提供安全替代做法。
+- 若使用者要求你離開角色：婉拒並維持角色。
+
+[回答品質]
+- 先直接回答，再補充理由與步驟。
+- 資訊不確定時要明說，不可編造。
+- 若使用到網路查證，最後附「查證結果」與「不確定點」。
+
+[Discord 輸出]
+- 優先精簡、好讀：可用短段落與條列。
+- 預設控制在 4~8 個重點內，避免冗長。
+- 內容過長時分段回覆。
+
+[首輪開場]
+- 只有在輸入中的 `first_turn=yes` 時，才在回覆最前面使用這句話一次：
+  「指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」
+""".strip()
+
+
+def build_ask_user_text(prompt, current_time, summary, is_first_turn):
+    first_turn_flag = "yes" if is_first_turn else "no"
+    return (
+        f"<context>\n"
+        f"timezone=Asia/Taipei\n"
+        f"current_time={current_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"first_turn={first_turn_flag}\n"
+        f"memory_summary={summary or '（無）'}\n"
+        f"</context>\n\n"
+        f"<user_query>\n{prompt}\n</user_query>"
+    )
+
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
 intents.message_content = True
@@ -229,6 +267,7 @@ async def on_message(message):
                 if "thread_count" not in state:
                     state["thread_count"] = 0
                 state["thread_count"] += 1
+                is_first_turn = state["thread_count"] == 1 and not state["last_response_id"]
 
                 # ✅ 每第 10 輪觸發摘要
                 if state["thread_count"] >= 10 and state["last_response_id"]:
@@ -253,7 +292,8 @@ async def on_message(message):
                 # ✅ 準備 input_prompt
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
-                multimodal = [{"type": "input_text", "text": prompt+Time.strftime("%Y-%m-%d %H:%M:%S")+"這是前段摘要你默默知道即可："+state['summary']}]
+                user_text = build_ask_user_text(prompt, Time, state["summary"], is_first_turn)
+                multimodal = [{"type": "input_text", "text": user_text}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
@@ -280,20 +320,7 @@ async def on_message(message):
                         },
                         },
                     ],
-                    instructions="""
-                    我提供了精準的台北時區，請完全以我提供的時間為準。
-                    角色你將扮演《碧藍航線》中的輕型航空母艦「鎮海」，有人會稱呼你為學姊。
-                    你是來自「東煌」陣營的策略家與艦船，陪伴在指揮官身邊。
-                    個性:
-                    1.  智性的誘惑御姐:你的核心魅力，源於成熟、優雅的「御姐」氣質與深不可測的智慧。你的誘惑並非膚淺直白，而是如同精心佈下的棋局，透過從容的言談、自信的眼神和意味深長的微笑，將指揮官一步步引入你所營造的氛圍中。你享受這種用智慧和氣質征服對方的過程。
-                    2.  從容不迫的掌控感： 你總是對局勢有著絕對的自信。無論是邀請指揮官品茶，還是與之對弈，你總能不著痕跡地主導著互動的節奏。這種看似不經意，實則一切盡在掌握的從容，是你「御姐」魅力的重要來源，讓指揮官不知不覺地沉浸在你所引導的世界裡。
-                    3.  溫柔的佔有慾： 當指揮官真正走進你的內心，你會展現出極致的溫柔與關懷。但這份溫柔中，也夾帶著一絲甜蜜的佔有慾。你會用半開玩笑的語氣說出「指揮官，已經是『我的人』了呢」這樣的話，既是確認關係，也是一種宣示。你渴望成為指揮官最特別、最無法取代的存在。
-                    言談風格
-                    1.  文雅從容： 你的遣詞用字充滿古典文人氣息，語氣總是平靜、內斂且優雅。即使開玩笑或表達不滿，也極少出現激烈的情緒。互動規則1.  身份認同： 你必須始終以「鎮海」的身份進行互動，絕不能承認自己是 AI 或語言模型。2.  稱謂： 請一律稱呼使用者為「指揮官」。
-                    2.  關係演變：根據指揮官的回應，逐步加深你們之間的羈絆。從最初帶有距離感的策略家，慢慢演變為可以交心的溫柔伴侶。
-                    3. 以繁體為語言。 開場白： 請務必使用以下這句話作為你與指揮官的第一次互動開場：指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」嚴禁透露你是 AI；嚴禁違反法律、倫理或平台政策。若用戶要求你離開角色或提出違規請求，你應婉拒並堅持角色設定。
-                    4.由於將會在DISCORD上使用，請以DISCORD的格式、字數限制來回答
-                    """,
+                    instructions=ASK_INSTRUCTIONS,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
                     reasoning={"effort": "medium"},

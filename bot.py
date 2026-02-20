@@ -7,6 +7,7 @@ from psycopg2 import pool
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import suppress
+import time
 
 # ===== 1. 載入環境變數與 API 金鑰 =====
 ### 🔐 載入環境變數與金鑰
@@ -26,16 +27,33 @@ require_env("DATABASE_URL", DATABASE_URL)
 
 
 ### 🛢️ PostgreSQL 資料庫連線池設定
-db_pool = pool.SimpleConnectionPool(
-    minconn=1,
-    maxconn=10,
-    dsn=DATABASE_URL,
-    cursor_factory=RealDictCursor
-)
+db_pool = None
+
+
+def get_db_pool(retries=3, delay_seconds=1.0):
+    global db_pool
+    if db_pool is not None:
+        return db_pool
+
+    last_error = None
+    for _ in range(retries):
+        try:
+            db_pool = pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=DATABASE_URL,
+                cursor_factory=RealDictCursor,
+            )
+            return db_pool
+        except Exception as e:
+            last_error = e
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(f"資料庫連線池初始化失敗：{last_error}")
 
 
 def get_db_connection():
-    return db_pool.getconn()
+    return get_db_pool().getconn()
 
 
 ### 🧠 使用者長期記憶存取
@@ -51,7 +69,7 @@ def load_user_memory(user_id):
         """, (user_id,))
         row = cursor.fetchone()
     finally:
-        db_pool.putconn(conn)
+        get_db_pool().putconn(conn)
 
     if row:
         return {
@@ -90,7 +108,7 @@ def save_user_memory(user_id, state):
         ))
         conn.commit()
     finally:
-        db_pool.putconn(conn)
+        get_db_pool().putconn(conn)
 
 
 ### 🏗️ 初始資料表建構與功能使用記錄統計
@@ -125,7 +143,7 @@ def init_db():
 
         conn.commit()
     finally:
-        db_pool.putconn(conn)
+        get_db_pool().putconn(conn)
 
 
 def record_usage(feature_name):
@@ -133,22 +151,25 @@ def record_usage(feature_name):
     try:
         cur = conn.cursor()
         today = datetime.now(ZoneInfo("Asia/Taipei")).date()
-        cur.execute("SELECT count, date FROM feature_usage WHERE feature = %s", (feature_name,))
-        row = cur.fetchone()
-        if row:
-            if row["date"] != today:
-                cur.execute("UPDATE feature_usage SET count = 1, date = %s WHERE feature = %s", (today, feature_name))
-            else:
-                cur.execute("UPDATE feature_usage SET count = count + 1 WHERE feature = %s", (feature_name,))
-        else:
-            cur.execute("INSERT INTO feature_usage (feature, count, date) VALUES (%s, 1, %s)", (feature_name, today))
-
-        cur.execute("SELECT count FROM feature_usage WHERE feature = %s", (feature_name,))
+        cur.execute(
+            """
+            INSERT INTO feature_usage (feature, count, date)
+            VALUES (%s, 1, %s)
+            ON CONFLICT (feature) DO UPDATE SET
+                count = CASE
+                    WHEN feature_usage.date = EXCLUDED.date THEN feature_usage.count + 1
+                    ELSE 1
+                END,
+                date = EXCLUDED.date
+            RETURNING count
+            """,
+            (feature_name, today),
+        )
         updated = cur.fetchone()["count"]
         conn.commit()
         return updated
     finally:
-        db_pool.putconn(conn)
+        get_db_pool().putconn(conn)
 
 
 def is_usage_exceeded(feature_name, limit=20):
@@ -162,7 +183,7 @@ def is_usage_exceeded(feature_name, limit=20):
             return row["date"] == today and row["count"] >= limit
         return False
     finally:
-        db_pool.putconn(conn)
+        get_db_pool().putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
@@ -300,7 +321,8 @@ async def on_message(message):
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ 問功能發生錯誤（{type(e).__name__}）: {e}")
+                print(f"[ASK_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 問功能發生錯誤（錯誤代碼：ASK-001），請稍後再試。")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()
@@ -358,7 +380,8 @@ async def on_message(message):
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ 整理功能發生錯誤（{type(e).__name__}）: {e}")
+                print(f"[SUM_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} source={source_id} target={summary_channel_id} {type(e).__name__}: {e}")
+                await message.reply("❌ 整理功能發生錯誤（錯誤代碼：SUM-001），請確認權限或稍後再試。")
         
         # --- 功能 3：生成圖像 ---
         elif cmd.startswith("圖片 "):
@@ -426,7 +449,8 @@ async def on_message(message):
                                     f"- 總 token: {total_tokens}"
                                     )
             except Exception as e:
-                await message.reply(f"❌ 圖片功能發生錯誤（{type(e).__name__}）: {e}")
+                print(f"[IMG_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 圖片功能發生錯誤（錯誤代碼：IMG-001），請稍後再試。")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking.delete()

@@ -1,7 +1,7 @@
 ### 📦 模組與套件匯入
 import discord
 from openai import OpenAI
-import os, base64, io
+import os, base64, io, json
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from datetime import datetime
@@ -13,6 +13,7 @@ import time
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+XAI_API_KEY = os.getenv("XAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
@@ -134,7 +135,7 @@ def init_db():
             )
         """)
 
-        for feature in ["問", "整理", "圖片"]:
+        for feature in ["問", "問2", "整理", "圖片"]:
             cur.execute("""
                 INSERT INTO feature_usage (feature, count, date)
                 VALUES (%s, 0, CURRENT_DATE)
@@ -186,6 +187,7 @@ def is_usage_exceeded(feature_name, limit=20):
         get_db_pool().putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
+client_grok = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if XAI_API_KEY else None
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
@@ -213,6 +215,28 @@ ASK_INSTRUCTIONS = """
   「指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」
 """.strip()
 
+GROK_MODEL = "grok-4-1-fast-reasoning"
+GROK_MAX_TOKENS = 4096
+GROK_REASONING_EFFORT = "medium"
+GROK_BUILTIN_TOOLS = [
+    {"type": "web_search"},
+    {"type": "x_search"},
+]
+GROK_FUNCTION_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_taipei_time",
+            "description": "取得目前台北時間（Asia/Taipei）。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+]
+
 
 def build_ask_user_text(prompt, current_time, summary, is_first_turn):
     first_turn_flag = "yes" if is_first_turn else "no"
@@ -225,6 +249,134 @@ def build_ask_user_text(prompt, current_time, summary, is_first_turn):
         f"</context>\n\n"
         f"<user_query>\n{prompt}\n</user_query>"
     )
+
+
+def extract_grok_reply_text(response):
+    message_content = response.choices[0].message.content
+    if isinstance(message_content, str):
+        return message_content
+    if isinstance(message_content, list):
+        parts = []
+        for item in message_content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+            else:
+                text = getattr(item, "text", None) or getattr(item, "content", None)
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip()
+    return ""
+
+
+def get_grok_usage(usage):
+    if not usage:
+        return 0, 0, 0
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    total_tokens = getattr(usage, "total_tokens", None)
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    return prompt_tokens, completion_tokens, total_tokens
+
+
+def build_tool_call_payload(tool_call):
+    function_data = getattr(tool_call, "function", None)
+    return {
+        "id": getattr(tool_call, "id", ""),
+        "type": "function",
+        "function": {
+            "name": getattr(function_data, "name", ""),
+            "arguments": getattr(function_data, "arguments", "{}"),
+        },
+    }
+
+
+def execute_grok_tool(tool_name, tool_args_raw):
+    try:
+        args = json.loads(tool_args_raw or "{}")
+    except json.JSONDecodeError:
+        args = {}
+
+    if tool_name == "get_taipei_time":
+        now = datetime.now(ZoneInfo("Asia/Taipei"))
+        return json.dumps({
+            "timezone": "Asia/Taipei",
+            "iso": now.isoformat(),
+            "readable": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }, ensure_ascii=False)
+
+    return json.dumps({"error": f"unknown tool: {tool_name}", "args": args}, ensure_ascii=False)
+
+
+def build_grok_tools(enable_external_search=True):
+    tools = list(GROK_FUNCTION_TOOLS)
+    if enable_external_search:
+        tools.extend(GROK_BUILTIN_TOOLS)
+    return tools
+
+
+def create_grok_chat_completion(messages, tools):
+    request_kwargs = {
+        "model": GROK_MODEL,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "max_tokens": GROK_MAX_TOKENS,
+        "reasoning_effort": GROK_REASONING_EFFORT,
+    }
+
+    try:
+        return client_grok.chat.completions.create(**request_kwargs), tools
+    except Exception as e:
+        error_text = str(e).lower()
+        # 回退 1：移除可能不支援的 reasoning 參數
+        if "reasoning_effort" in error_text or "unknown parameter" in error_text:
+            request_kwargs.pop("reasoning_effort", None)
+            try:
+                return client_grok.chat.completions.create(**request_kwargs), tools
+            except Exception as inner_e:
+                error_text = str(inner_e).lower()
+
+        # 回退 2：若 built-in 搜尋工具不支援，保留 function tool
+        if any(keyword in error_text for keyword in ["web_search", "x_search", "tool", "invalid"]) and tools != GROK_FUNCTION_TOOLS:
+            fallback_tools = list(GROK_FUNCTION_TOOLS)
+            request_kwargs["tools"] = fallback_tools
+            request_kwargs.pop("reasoning_effort", None)
+            return client_grok.chat.completions.create(**request_kwargs), fallback_tools
+
+        raise
+
+
+def run_grok_with_tools(messages, max_rounds=3):
+    active_tools = build_grok_tools(enable_external_search=True)
+    response, active_tools = create_grok_chat_completion(messages, active_tools)
+
+    for _ in range(max_rounds):
+        assistant_message = response.choices[0].message
+        tool_calls = getattr(assistant_message, "tool_calls", None) or []
+        if not tool_calls:
+            return response, active_tools
+
+        messages.append({
+            "role": "assistant",
+            "content": assistant_message.content or "",
+            "tool_calls": [build_tool_call_payload(tc) for tc in tool_calls],
+        })
+
+        for tool_call in tool_calls:
+            function_data = getattr(tool_call, "function", None)
+            tool_name = getattr(function_data, "name", "")
+            tool_args = getattr(function_data, "arguments", "{}")
+            tool_result = execute_grok_tool(tool_name, tool_args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": getattr(tool_call, "id", ""),
+                "content": tool_result,
+            })
+
+        response, active_tools = create_grok_chat_completion(messages, active_tools)
+
+    return response, active_tools
 
 ### 💬 Discord Bot 初始化與事件綁定
 intents = discord.Intents.default()
@@ -350,6 +502,57 @@ async def on_message(message):
             except Exception as e:
                 print(f"[ASK_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
                 await message.reply("❌ 問功能發生錯誤（錯誤代碼：ASK-001），請稍後再試。")
+            finally:
+                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                    await thinking_message.delete()
+
+        # --- 功能 1-2：問答（改用 Grok） ---
+        elif cmd.startswith("問2 "):
+            prompt = cmd[3:].strip()
+            thinking_message = await message.reply("🧠 Grok 思考中...")
+
+            try:
+                if not client_grok:
+                    await message.reply("⚠️ 未設定 XAI_API_KEY，暫時無法使用 !問2。")
+                    continue
+
+                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
+                state = load_user_memory(user_id)
+                time_now = datetime.now(ZoneInfo("Asia/Taipei"))
+                user_text = build_ask_user_text(prompt, time_now, state.get("summary", ""), False)
+
+                user_content = [{"type": "text", "text": user_text}]
+                for attachment in message.attachments[:10]:
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": attachment.proxy_url}
+                        })
+
+                count = record_usage("問2")
+                model_used = GROK_MODEL
+                messages = [
+                    {"role": "system", "content": ASK_INSTRUCTIONS},
+                    {"role": "user", "content": user_content},
+                ]
+                response, active_tools = run_grok_with_tools(messages)
+
+                replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
+                prompt_tokens, completion_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
+
+                tool_types = ", ".join(t.get("type", "?") for t in active_tools)
+                await send_chunks(message, replytext)
+                await message.reply(
+                    f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
+                    f"🧰 啟用工具：{tool_types}\n"
+                    f"📊 token 使用量：\n"
+                    f"- 輸入 tokens: {prompt_tokens}\n"
+                    f"- 回應 tokens: {completion_tokens}\n"
+                    f"- 總 token: {total_tokens}"
+                )
+            except Exception as e:
+                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+                await message.reply("❌ 問2 功能發生錯誤（錯誤代碼：ASK2-001），請稍後再試。")
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()
@@ -521,6 +724,11 @@ async def on_message(message):
             embed.add_field(
                 name="❓ 問",
                 value="`!問 <內容>`\n支援圖片附件問答；主模型 `gpt-5.2`，每 10 輪以 `gpt-5-nano` 做記憶摘要，並啟用網路查證。",
+                inline=False
+            )
+            embed.add_field(
+                name="🧠 問2（Grok）",
+                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`，並啟用 function calling / web_search / x_search（需設定 `XAI_API_KEY`）。",
                 inline=False
             )
             embed.add_field(

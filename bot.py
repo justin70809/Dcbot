@@ -363,8 +363,11 @@ def run_grok_with_tools(user_content, max_rounds=3):
     """
     active_tools = build_grok_tools(enable_external_search=True)
 
-    # --- 第一次呼叫：送出使用者訊息 ---
-    input_payload = [{"role": "user", "content": user_content}]
+    # --- 第一次呼叫：帶入系統提示與使用者訊息 ---
+    input_payload = [
+        {"role": "system", "content": ASK_INSTRUCTIONS},
+        {"role": "user", "content": user_content},
+    ]
     response, active_tools = create_grok_response(
         input_payload=input_payload,
         tools=active_tools,
@@ -540,12 +543,13 @@ async def on_message(message):
                 time_now = datetime.now(ZoneInfo("Asia/Taipei"))
                 user_text = build_ask_user_text(prompt, time_now, state.get("summary", ""), False)
 
-                user_content = [{"type": "text", "text": user_text}]
+                user_content = [{"type": "input_text", "text": user_text}]
                 for attachment in message.attachments[:10]:
                     if attachment.content_type and attachment.content_type.startswith("image/"):
                         user_content.append({
-                            "type": "image_url",
-                            "image_url": {"url": attachment.proxy_url}
+                            "type": "input_image",
+                            "image_url": attachment.proxy_url,
+                            "detail": "auto",
                         })
 
                 count = record_usage("問2")

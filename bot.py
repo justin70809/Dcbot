@@ -2,6 +2,7 @@
 import discord
 from openai import OpenAI
 import os, base64, io, json
+import asyncio
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from datetime import datetime
@@ -18,6 +19,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.4")
 OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-nano")
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-4.1")
+DAILY_NEWS_CHANNEL_ID_RAW = os.getenv("DAILY_NEWS_CHANNEL_ID", "1354827117501612144").strip()
+DAILY_NEWS_PROMPT = os.getenv(
+    "DAILY_NEWS_PROMPT",
+    "請彙整今天最重要的國際和國內新聞，每則新聞請附上事件重點、影響與來源查證摘要。",
+)
 
 
 def require_env(name, value):
@@ -28,6 +34,22 @@ def require_env(name, value):
 require_env("DISCORD_TOKEN", DISCORD_TOKEN)
 require_env("OPENAI_API_KEY", OPENAI_API_KEY)
 require_env("DATABASE_URL", DATABASE_URL)
+
+
+def parse_optional_int_env(name, raw_value):
+    if not raw_value:
+        return None
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        print(f"⚠️ 環境變數 {name} 不是有效整數：{raw_value}")
+        return None
+
+
+DAILY_NEWS_CHANNEL_ID = parse_optional_int_env("DAILY_NEWS_CHANNEL_ID", DAILY_NEWS_CHANNEL_ID_RAW)
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+AUTO_NEWS_FEATURE_NAME = "自動推播"
 
 
 ### 🛢️ PostgreSQL 資料庫連線池設定
@@ -138,13 +160,49 @@ def init_db():
             )
         """)
 
-        for feature in ["問", "問2", "整理", "圖片"]:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                job_name TEXT PRIMARY KEY,
+                last_run_date DATE NOT NULL
+            )
+        """)
+
+        for feature in ["問", "問2", "整理", "圖片", AUTO_NEWS_FEATURE_NAME]:
             cur.execute("""
                 INSERT INTO feature_usage (feature, count, date)
                 VALUES (%s, 0, CURRENT_DATE)
                 ON CONFLICT (feature) DO NOTHING
             """, (feature,))
 
+        conn.commit()
+    finally:
+        get_db_pool().putconn(conn)
+
+
+def has_job_run_on_date(job_name, target_date):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT last_run_date FROM scheduled_jobs WHERE job_name = %s", (job_name,))
+        row = cur.fetchone()
+        return bool(row and row["last_run_date"] == target_date)
+    finally:
+        get_db_pool().putconn(conn)
+
+
+def mark_job_run(job_name, target_date):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO scheduled_jobs (job_name, last_run_date)
+            VALUES (%s, %s)
+            ON CONFLICT (job_name) DO UPDATE SET
+                last_run_date = EXCLUDED.last_run_date
+            """,
+            (job_name, target_date),
+        )
         conn.commit()
     finally:
         get_db_pool().putconn(conn)
@@ -423,7 +481,11 @@ client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
+    global daily_news_task
+
     init_db()
+    if daily_news_task is None or daily_news_task.done():
+        daily_news_task = asyncio.create_task(daily_news_scheduler())
     print(f'✅ Bot 登入成功：{client.user}')
 
 
@@ -431,6 +493,114 @@ async def send_chunks(message, text, chunk_size=2000):
     """Send text in chunks not exceeding Discord's 2000 character limit."""
     for i in range(0, len(text), chunk_size):
         await message.reply(text[i:i + chunk_size])
+
+
+async def send_channel_chunks(channel, text, chunk_size=2000):
+    """Send text in chunks not exceeding Discord's 2000 character limit."""
+    for i in range(0, len(text), chunk_size):
+        await channel.send(text[i:i + chunk_size])
+
+
+daily_news_task = None
+
+
+async def resolve_daily_news_channel():
+    if not DAILY_NEWS_CHANNEL_ID:
+        print("⚠️ 已略過每日國際新聞彙整：未設定 DAILY_NEWS_CHANNEL_ID。")
+        return None
+
+    channel = client.get_channel(DAILY_NEWS_CHANNEL_ID)
+    if channel is None:
+        try:
+            channel = await client.fetch_channel(DAILY_NEWS_CHANNEL_ID)
+        except Exception as e:
+            print(f"[DAILY_NEWS_ERR] 無法取得頻道 {DAILY_NEWS_CHANNEL_ID}: {e}")
+            return None
+
+    if not isinstance(channel, discord.TextChannel):
+        print(f"[DAILY_NEWS_ERR] 頻道 {DAILY_NEWS_CHANNEL_ID} 不是文字頻道。")
+        return None
+
+    return channel
+
+
+async def run_auto_news_push(trigger_label):
+    if not client_grok:
+        print("⚠️ 已略過每日國際新聞彙整：未設定 XAI_API_KEY。")
+        return False
+
+    channel = await resolve_daily_news_channel()
+    if channel is None:
+        return False
+
+    current_time = datetime.now(TAIPEI_TZ)
+    user_text = build_ask_user_text(DAILY_NEWS_PROMPT, current_time, "", False)
+    user_content = [{"type": "input_text", "text": user_text}]
+
+    response, active_tools = run_grok_with_tools(user_content)
+    summary_text = extract_grok_reply_text(response) or "（今日未取得可顯示的國際新聞摘要）"
+    input_tokens, output_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
+    usage_count = record_usage(AUTO_NEWS_FEATURE_NAME)
+
+    prefix = "🧪 **自動推播測試**\n" if trigger_label == "manual_test" else ""
+    header = f"🌏 **每日國際新聞彙整（台北時間 {current_time:%Y-%m-%d %H:%M}）**"
+    await send_channel_chunks(channel, f"{prefix}{header}\n\n{summary_text}")
+
+    tool_types = ", ".join(t.get("type", "?") for t in active_tools)
+    await channel.send(
+        f"📊 今天所有人總共使用「{AUTO_NEWS_FEATURE_NAME}」功能 {usage_count} 次，本次使用的模型：{GROK_MODEL}\n"
+        f"🧰 啟用工具：{tool_types}\n"
+        f"📊 token 使用量：\n"
+        f"- 輸入 tokens: {input_tokens}\n"
+        f"- 回應 tokens: {output_tokens}\n"
+        f"- 總 token: {total_tokens}"
+    )
+    return True
+
+
+async def handle_auto_news_test_command(message):
+    testing_message = await message.reply("🧪 正在執行自動推播測試，請稍候...")
+    try:
+        executed = await run_auto_news_push(trigger_label="manual_test")
+        if executed:
+            await message.reply(f"✅ 已完成測試推播，請到 <#{DAILY_NEWS_CHANNEL_ID}> 查看。")
+        else:
+            await message.reply("⚠️ 測試推播未執行，請確認 XAI_API_KEY 與 DAILY_NEWS_CHANNEL_ID 設定。")
+    except Exception as e:
+        print(f"[DAILY_NEWS_TEST_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
+        await message.reply("❌ 自動推播測試失敗，請稍後再試。")
+    finally:
+        with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+            await testing_message.delete()
+
+
+async def daily_news_scheduler():
+    await client.wait_until_ready()
+
+    schedule_slots = [
+        {"hour": 8, "minute": 0, "job_name": "daily_news_ask2_0800"},
+        {"hour": 21, "minute": 0, "job_name": "daily_news_ask2_2100"},
+    ]
+
+    while not client.is_closed():
+        now = datetime.now(TAIPEI_TZ)
+        today = now.date()
+
+        for slot in schedule_slots:
+            if now.hour == slot["hour"] and now.minute == slot["minute"]:
+                if has_job_run_on_date(slot["job_name"], today):
+                    continue
+
+                try:
+                    executed = await run_auto_news_push(trigger_label="scheduled")
+                    if executed:
+                        mark_job_run(slot["job_name"], today)
+                        print(f"✅ 每日國際新聞彙整完成：{today} {slot['hour']:02d}:{slot['minute']:02d}")
+                except Exception as e:
+                    print(f"[DAILY_NEWS_ERR] slot={slot['job_name']} {type(e).__name__}: {e}")
+
+        await asyncio.sleep(20)
+
 
 pending_reset_confirmations = {}
 @client.event
@@ -590,6 +760,10 @@ async def on_message(message):
             finally:
                 with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
                     await thinking_message.delete()
+
+        # --- 功能 1-3：自動推播測試 ---
+        elif cmd.strip() == "自動推播測試":
+            await handle_auto_news_test_command(message)
 
         # --- 功能 2：內容整理摘要 ---
         elif cmd.startswith("整理 "):
@@ -783,6 +957,11 @@ async def on_message(message):
             embed.add_field(
                 name="♻️ 重置記憶",
                 value="`!重置記憶` → 開始記憶清除流程\n`!確定重置` / `!取消重置` → 確認或取消重置",
+                inline=False
+            )
+            embed.add_field(
+                name="🧪 自動推播測試",
+                value="`!自動推播測試`\n立刻測試獨立的「自動推播」功能，立即發送一次每日國際新聞。",
                 inline=False
             )
             embed.add_field(

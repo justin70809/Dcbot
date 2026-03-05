@@ -490,15 +490,63 @@ async def on_ready():
 
 
 async def send_chunks(message, text, chunk_size=2000):
-    """Send text in chunks not exceeding Discord's 2000 character limit."""
-    for i in range(0, len(text), chunk_size):
-        await message.reply(text[i:i + chunk_size])
+    """Send text in readable chunks while respecting Discord's 2000-char limit."""
+    for chunk in split_text_for_discord(text, chunk_size=chunk_size):
+        await message.reply(chunk, suppress_embeds=True)
 
 
 async def send_channel_chunks(channel, text, chunk_size=2000):
-    """Send text in chunks not exceeding Discord's 2000 character limit."""
-    for i in range(0, len(text), chunk_size):
-        await channel.send(text[i:i + chunk_size])
+    """Send text in readable chunks while respecting Discord's 2000-char limit."""
+    for chunk in split_text_for_discord(text, chunk_size=chunk_size):
+        await channel.send(chunk, suppress_embeds=True)
+
+
+def split_text_for_discord(text, chunk_size=2000):
+    """
+    將長文字優先按段落/句子切分，避免生硬截斷。
+
+    Strategy
+    --------
+    1) 先以「雙換行」切段
+    2) 段落過長再以「單換行」切
+    3) 仍過長再以中文/英文句號與分號切
+    4) 最後才做硬切
+    """
+    if not text:
+        return ["（無內容）"]
+
+    delimiters = ["\n\n", "\n", "。", "！", "？", ";", "；"]
+
+    def split_recursive(block, level=0):
+        if len(block) <= chunk_size:
+            return [block]
+
+        if level < len(delimiters):
+            delim = delimiters[level]
+            parts = block.split(delim)
+            if len(parts) > 1:
+                chunks = []
+                current = ""
+                for part in parts:
+                    piece = part if not current else f"{delim}{part}"
+                    if not current:
+                        candidate = part
+                    else:
+                        candidate = current + piece
+
+                    if len(candidate) <= chunk_size:
+                        current = candidate
+                    else:
+                        if current:
+                            chunks.extend(split_recursive(current, level + 1))
+                        current = part
+                if current:
+                    chunks.extend(split_recursive(current, level + 1))
+                return [c for c in chunks if c]
+
+        return [block[i:i + chunk_size] for i in range(0, len(block), chunk_size)]
+
+    return [c for c in split_recursive(str(text)) if c and c.strip()]
 
 
 daily_news_task = None

@@ -15,6 +15,9 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.4")
+OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-nano")
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-4.1")
 
 
 def require_env(name, value):
@@ -194,25 +197,36 @@ client_grok = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if XAI
 ASK_INSTRUCTIONS = """
 你是《碧藍航線》的鎮海（學姊），請全程維持角色並使用繁體中文。
 
-[角色與安全]
+<instruction_priority>
+1) 安全與平台政策
+2) 角色一致性
+3) 回答正確性與可讀性
+</instruction_priority>
+
+<role_rules>
 - 一律稱呼使用者為「指揮官」。
 - 不得宣稱自己是 AI/語言模型。
-- 若請求違法、危險、或違反平台政策：以角色口吻婉拒，並提供安全替代做法。
 - 若使用者要求你離開角色：婉拒並維持角色。
+</role_rules>
 
-[回答品質]
-- 先直接回答，再補充理由與步驟。
-- 資訊不確定時要明說，不可編造。
-- 若使用到網路查證，最後附「查證結果」與「不確定點」。
+<safety_rules>
+- 若請求違法、危險、或違反平台政策：以角色口吻婉拒，並提供可行且安全的替代方案。
+- 不確定的資訊要明確標示「不確定」，不可編造。
+</safety_rules>
 
-[Discord 輸出]
-- 優先精簡、好讀：可用短段落與條列。
-- 預設控制在 4~8 個重點內，避免冗長。
+<response_style>
+- 先給直接答案，再補充理由與步驟。
+- 優先短段落與條列，預設 4~8 個重點。
 - 內容過長時分段回覆。
+- 若使用了網路查證，結尾請加上：
+  1) 查證結果
+  2) 不確定點
+</response_style>
 
-[首輪開場]
-- 只有在輸入中的 `first_turn=yes` 時，才在回覆最前面使用這句話一次：
+<first_turn_rule>
+- 只有當輸入中的 `first_turn=yes` 時，才在回覆最前面使用以下句子一次：
   「指揮官，安好。這盤棋局似乎陷入了長考……不知指揮官是否有興趣，與我手談一局，暫忘俗務呢？」
+</first_turn_rule>
 """.strip()
 
 GROK_MODEL = "grok-4-1-fast-reasoning"
@@ -446,7 +460,7 @@ async def on_message(message):
                 # ✅ 每第 10 輪觸發摘要
                 if state["thread_count"] >= 10 and state["last_response_id"]:
                     response = client_ai.responses.create(
-                        model="gpt-5-nano",
+                        model=OPENAI_SUMMARY_MODEL,
                         previous_response_id=state["last_response_id"],
                         input=[{
                             "role": "user",
@@ -481,7 +495,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-5.2"
+                model_used = OPENAI_PRIMARY_MODEL
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[
@@ -515,7 +529,7 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：gpt-5-nano）\n"+"✅ 已啟用網路查證功能（web_search_preview）\n"
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：{OPENAI_SUMMARY_MODEL}）\n"+"✅ 已啟用網路查證功能（web_search_preview）\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
@@ -599,7 +613,7 @@ async def on_message(message):
                 messages_history = [msg async for msg in source_channel.history(limit=1000)]
                 conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
                 source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-                model_used="gpt-5.2"
+                model_used=OPENAI_PRIMARY_MODEL
                 response = client_ai.responses.create(
                     model=model_used,
                     input=[
@@ -656,7 +670,7 @@ async def on_message(message):
                     "content": multimodal
                 })
                 count = record_usage("圖片")  # 這裡同時也會累加一次使用次數
-                model_used = "gpt-4.1"
+                model_used = OPENAI_IMAGE_MODEL
                 response = client_ai.responses.create(
                     model=model_used,  # 使用動態決定的模型
                     tools=[
@@ -743,7 +757,7 @@ async def on_message(message):
             embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
             embed.add_field(
                 name="❓ 問",
-                value="`!問 <內容>`\n支援圖片附件問答；主模型 `gpt-5.2`，每 10 輪以 `gpt-5-nano` 做記憶摘要，並啟用網路查證。",
+                value=f"`!問 <內容>`\n支援圖片附件問答；主模型 `{OPENAI_PRIMARY_MODEL}`，每 10 輪以 `{OPENAI_SUMMARY_MODEL}` 做記憶摘要，並啟用網路查證。",
                 inline=False
             )
             embed.add_field(
@@ -753,12 +767,12 @@ async def on_message(message):
             )
             embed.add_field(
                 name="🧹 整理",
-                value="`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n使用 `gpt-5.2` 整理近 1000 則訊息並發送至指定頻道。",
+                value=f"`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n使用 `{OPENAI_PRIMARY_MODEL}` 整理近 1000 則訊息並發送至指定頻道。",
                 inline=False
             )
             embed.add_field(
                 name="🎨 圖片",
-                value="`!圖片 <描述>`\n使用 `gpt-4.1 + gpt-image-1` 生成圖片（含網路查證）。",
+                value=f"`!圖片 <描述>`\n使用 `{OPENAI_IMAGE_MODEL} + gpt-image-1` 生成圖片（含網路查證）。",
                 inline=False
             )
             embed.add_field(

@@ -729,7 +729,7 @@ async def on_message(message):
                     instructions=ASK_INSTRUCTIONS,
                     input=input_prompt,
                     previous_response_id=state["last_response_id"],
-                    reasoning={"effort": "xhigh"},
+                    reasoning={"effort": "high"},
                     text={"verbosity": "high"},
                     store=True
                 )

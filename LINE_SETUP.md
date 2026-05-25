@@ -14,8 +14,9 @@
 - `DATABASE_URL`
 
 可選：
-- `OPENAI_PRIMARY_MODEL`（預設 `gpt-5.4`）
-- `OPENAI_SUMMARY_MODEL`（預設 `gpt-5.4-nano`）
+- `OPENAI_PRIMARY_MODEL`（預設 `gpt-5.5`）
+- `OPENAI_SUMMARY_MODEL`（預設 `gpt-5.5-mini`）
+- `OPENAI_ENABLE_WEB_SEARCH`（預設 `true`，啟用自動網路搜尋）
 - `PORT`（預設 `8000`）
 
 ## 3) 啟動

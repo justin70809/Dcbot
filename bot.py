@@ -1,5 +1,5 @@
 ### 📦 模組與套件匯入
-import discord
+import discord as chat_platform
 from openai import OpenAI
 import os, base64, io, json
 import asyncio
@@ -14,9 +14,8 @@ import time
 ### 🔐 載入環境變數與金鑰
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-XAI_API_KEY = os.getenv("XAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.4")
+OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.5")
 OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-nano")
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-4.1")
 DAILY_NEWS_CHANNEL_ID_RAW = os.getenv("DAILY_NEWS_CHANNEL_ID", "1354827117501612144").strip()
@@ -49,7 +48,6 @@ def parse_optional_int_env(name, raw_value):
 
 DAILY_NEWS_CHANNEL_ID = parse_optional_int_env("DAILY_NEWS_CHANNEL_ID", DAILY_NEWS_CHANNEL_ID_RAW)
 TAIPEI_TZ = ZoneInfo("Asia/Taipei")
-AUTO_NEWS_FEATURE_NAME = "自動推播"
 
 
 ### 🛢️ PostgreSQL 資料庫連線池設定
@@ -167,7 +165,7 @@ def init_db():
             )
         """)
 
-        for feature in ["問", "問2", "整理", "圖片", AUTO_NEWS_FEATURE_NAME]:
+        for feature in ["問"]:
             cur.execute("""
                 INSERT INTO feature_usage (feature, count, date)
                 VALUES (%s, 0, CURRENT_DATE)
@@ -248,7 +246,7 @@ def is_usage_exceeded(feature_name, limit=20):
         get_db_pool().putconn(conn)
 
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
-client_grok = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if XAI_API_KEY else None
+client_grok = None
 #client_perplexity = OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
@@ -274,7 +272,7 @@ ASK_INSTRUCTIONS = """
 
 <response_style>
 - 先給直接答案，再補充理由與步驟。
-- 優先短段落與條列，預設 4~8 個重點。
+- 優先短段落與條列，預設 2~4 個重點，內容簡潔。
 - 內容過長時分段回覆。
 - 若使用了網路查證，結尾請加上：
   1) 查證結果
@@ -472,36 +470,32 @@ def run_grok_with_tools(user_content, max_rounds=3):
 
     return response, active_tools
 
-### 💬 Discord Bot 初始化與事件綁定
-intents = discord.Intents.default()
+### 💬 Bot 初始化與事件綁定
+intents = chat_platform.Intents.default()
 intents.message_content = True
 intents.messages = True
 intents.guilds = True
-client = discord.Client(intents=intents)
+client = chat_platform.Client(intents=intents)
 
 @client.event
 async def on_ready():
-    global daily_news_task
-
     init_db()
-    if daily_news_task is None or daily_news_task.done():
-        daily_news_task = asyncio.create_task(daily_news_scheduler())
     print(f'✅ Bot 登入成功：{client.user}')
 
 
 async def send_chunks(message, text, chunk_size=2000):
-    """Send text in readable chunks while respecting Discord's 2000-char limit."""
-    for chunk in split_text_for_discord(text, chunk_size=chunk_size):
+    """"Send text in readable chunks while respecting the platform 2000-char limit."""
+    for chunk in split_text_for_platform(text, chunk_size=chunk_size):
         await message.reply(chunk, suppress_embeds=True)
 
 
 async def send_channel_chunks(channel, text, chunk_size=2000):
-    """Send text in readable chunks while respecting Discord's 2000-char limit."""
-    for chunk in split_text_for_discord(text, chunk_size=chunk_size):
+    """"Send text in readable chunks while respecting the platform 2000-char limit."""
+    for chunk in split_text_for_platform(text, chunk_size=chunk_size):
         await channel.send(chunk, suppress_embeds=True)
 
 
-def split_text_for_discord(text, chunk_size=2000):
+def split_text_for_platform(text, chunk_size=2000):
     """
     將長文字優先按段落/句子切分，避免生硬截斷。
 
@@ -565,7 +559,7 @@ async def resolve_daily_news_channel():
             print(f"[DAILY_NEWS_ERR] 無法取得頻道 {DAILY_NEWS_CHANNEL_ID}: {e}")
             return None
 
-    if not isinstance(channel, discord.TextChannel):
+    if not isinstance(channel, chat_platform.TextChannel):
         print(f"[DAILY_NEWS_ERR] 頻道 {DAILY_NEWS_CHANNEL_ID} 不是文字頻道。")
         return None
 
@@ -618,7 +612,7 @@ async def handle_auto_news_test_command(message):
         print(f"[DAILY_NEWS_TEST_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
         await message.reply("❌ 自動推播測試失敗，請稍後再試。")
     finally:
-        with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+        with suppress(chat_platform.HTTPException, chat_platform.Forbidden, chat_platform.NotFound):
             await testing_message.delete()
 
 
@@ -661,7 +655,7 @@ async def on_message(message):
         if not cmd.strip():
             continue
 
-        # --- 功能 1：問答（含圖片） ---
+        # --- 唯一功能：問答（純文字 / OpenAI） ---
         if cmd.startswith("問 "):
             prompt = cmd[2:].strip()
             thinking_message = await message.reply("🧠 Thinking...")
@@ -695,42 +689,33 @@ async def on_message(message):
                     state["thread_count"] = 0
                     await message.reply("📝 對話已達 10 輪，已自動總結並重新開始。")
 
-                # ✅ 準備 input_prompt
+                # ✅ 準備 input_prompt（僅文字）
                 Time = datetime.now(ZoneInfo("Asia/Taipei"))
                 input_prompt = []
                 user_text = build_ask_user_text(prompt, Time, state["summary"], is_first_turn)
-                multimodal = [{"type": "input_text", "text": user_text}]
-                for attachment in message.attachments[:10]:
-                    if attachment.content_type and attachment.content_type.startswith("image/"):
-                        image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
-                        multimodal.append({
-                            "type": "input_image",
-                            "image_url": image_url,
-                            "detail": "auto"
-                        }) 
                 input_prompt.append({
                     "role": "user",
-                    "content": multimodal
+                    "content": [{"type": "input_text", "text": user_text}]
                 })
                 count = record_usage("問")  # 這裡同時也會累加一次使用次數
                 model_used = OPENAI_PRIMARY_MODEL
                 response = client_ai.responses.create(
-                    model=model_used,  # 使用動態決定的模型
-                    tools=[
-                        {
-                        "type": "web_search_preview",
-                        "user_location": {
-                            "type": "approximate",
-                            "country": "TW",
-                            "timezone": "Asia/Taipei"
-                        },
-                        },
-                    ],
+                    model=model_used,
                     instructions=ASK_INSTRUCTIONS,
                     input=input_prompt,
+                    tools=[
+                        {
+                            "type": "web_search_preview",
+                            "user_location": {
+                                "type": "approximate",
+                                "country": "TW",
+                                "timezone": "Asia/Taipei"
+                            },
+                        },
+                    ],
                     previous_response_id=state["last_response_id"],
                     reasoning={"effort": "high"},
-                    text={"verbosity": "high"},
+                    text={"verbosity": "low"},
                     store=True
                 )
                 
@@ -747,7 +732,7 @@ async def on_message(message):
                 reasoning_tokens = getattr(details, "reasoning_tokens", 0)
                 visible_tokens = output_tokens - reasoning_tokens
                 await send_chunks(message, replytext)
-                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：{OPENAI_SUMMARY_MODEL}）\n"+"✅ 已啟用網路查證功能（web_search_preview）\n"
+                await message.reply(f"📊 今天所有人總共使用「問」功能 {count} 次，本次使用的模型：{model_used}（摘要：{OPENAI_SUMMARY_MODEL}）\n"
                                     f"📊 token 使用量：\n"
                                     f"- 輸入 tokens: {input_tokens}\n"
                                     f"- 回應 tokens: {visible_tokens}\n"
@@ -757,267 +742,15 @@ async def on_message(message):
                 print(f"[ASK_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
                 await message.reply("❌ 問功能發生錯誤（錯誤代碼：ASK-001），請稍後再試。")
             finally:
-                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
+                with suppress(chat_platform.HTTPException, chat_platform.Forbidden, chat_platform.NotFound):
                     await thinking_message.delete()
-
-        # --- 功能 1-2：問答（改用 Grok） ---
-        elif cmd.startswith("問2 "):
-            prompt = cmd[3:].strip()
-            thinking_message = await message.reply("🧠 Grok 思考中...")
-
-            try:
-                if not client_grok:
-                    await message.reply("⚠️ 未設定 XAI_API_KEY，暫時無法使用 !問2。")
-                    continue
-
-                user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-                state = load_user_memory(user_id)
-                time_now = datetime.now(ZoneInfo("Asia/Taipei"))
-                user_text = build_ask_user_text(prompt, time_now, state.get("summary", ""), False)
-
-                user_content = [{"type": "input_text", "text": user_text}]
-                for attachment in message.attachments[:10]:
-                    if attachment.content_type and attachment.content_type.startswith("image/"):
-                        user_content.append({
-                            "type": "input_image",
-                            "image_url": attachment.proxy_url,
-                            "detail": "auto",
-                        })
-
-                count = record_usage("問2")
-                model_used = GROK_MODEL
-                response, active_tools = run_grok_with_tools(user_content)
-
-                replytext = extract_grok_reply_text(response) or "（Grok 沒有回傳可顯示內容）"
-                input_tokens, output_tokens, total_tokens = get_grok_usage(getattr(response, "usage", None))
-
-                tool_types = ", ".join(t.get("type", "?") for t in active_tools)
-                await send_chunks(message, replytext)
-                await message.reply(
-                    f"📊 今天所有人總共使用「問2」功能 {count} 次，本次使用的模型：{model_used}\n"
-                    f"🧰 啟用工具：{tool_types}\n"
-                    f"📊 token 使用量：\n"
-                    f"- 輸入 tokens: {input_tokens}\n"
-                    f"- 回應 tokens: {output_tokens}\n"
-                    f"- 總 token: {total_tokens}"
-                )
-            except Exception as e:
-                error_msg = f"{type(e).__name__}: {str(e)}"
-                print(f"[ASK2_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {error_msg}")
-                await message.reply(f"❌ 問2 功能發生錯誤\n```python\n{error_msg}\n```")
-            finally:
-                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
-                    await thinking_message.delete()
-
-        # --- 功能 1-3：自動推播測試 ---
-        elif cmd.strip() == "自動推播測試":
-            await handle_auto_news_test_command(message)
-
-        # --- 功能 2：內容整理摘要 ---
-        elif cmd.startswith("整理 "):
-            parts = cmd.split()
-            if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
-                await message.reply("⚠️ 使用方法：`!整理 <來源頻道/討論串ID> <摘要要送到的頻道ID>`")
-                continue
-
-            source_id = int(parts[1])
-            summary_channel_id = int(parts[2])
-            await message.reply(f"🔍 正在搜尋來源 ID `{source_id}` 與目標頻道 ID `{summary_channel_id}`...")
-
-            source_channel = client.get_channel(source_id)
-            summary_channel = client.get_channel(summary_channel_id)
-            if not isinstance(source_channel, (discord.Thread, discord.TextChannel)) or not isinstance(summary_channel, discord.TextChannel):
-                await message.reply("⚠️ 找不到來源或目標頻道，請確認 bot 權限與 ID 是否正確。")
-                continue
-
-            await message.reply("🧹 正在整理內容，請稍後...")
-            try:
-                messages_history = [msg async for msg in source_channel.history(limit=1000)]
-                conversation = "\n".join(f"{msg.author.display_name}: {msg.content}" for msg in reversed(messages_history))
-                source_type = f"討論串：{source_channel.name}" if isinstance(source_channel, discord.Thread) else f"頻道：{source_channel.name}"
-                model_used=OPENAI_PRIMARY_MODEL
-                response = client_ai.responses.create(
-                    model=model_used,
-                    input=[
-                        {"role": "system", "content": "你是一位擅長內容摘要的助理，請整理以下 Discord 訊息成為條理清楚、詳細完整的摘要。你在說明時，盡量用具體實際的狀況來說明，不要用籠統的敘述簡單帶過。"},
-                        {"role": "user", "content": conversation}
-                    ]
-                )
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
-                total_tokens = response.usage.total_tokens
-
-                # 注意：output_tokens_details 可能不存在，要用 getattr 保險
-                details = getattr(response.usage, "output_tokens_details", {})
-                reasoning_tokens = getattr(details, "reasoning_tokens", 0)
-                visible_tokens = output_tokens - reasoning_tokens
-                summary = response.output_text
-                embed_description = summary if len(summary) <= 4096 else summary[:4093] + "..."
-                embed = discord.Embed(title=f"內容摘要：{source_type}", description=embed_description, color=discord.Color.blue())
-                embed.set_footer(text=f"來源ID: {source_id}")
-                await summary_channel.send(embed=embed)
-                await message.reply("✅ 內容摘要已經發送！")
-
-                count = record_usage("整理")
-                await message.reply(f"📊 今天所有人總共使用「整理」功能 {count} 次，本次使用的模型：{model_used}\n"+"注意沒有網路查詢功能，資料可能有誤\n"
-                                    f"📊 token 使用量：\n"
-                                    f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 回應 tokens: {visible_tokens}\n"
-                                    f"- 總 token: {total_tokens}"
-                                    )
-            except Exception as e:
-                print(f"[SUM_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} source={source_id} target={summary_channel_id} {type(e).__name__}: {e}")
-                await message.reply("❌ 整理功能發生錯誤（錯誤代碼：SUM-001），請確認權限或稍後再試。")
-        
-        # --- 功能 3：生成圖像 ---
-        elif cmd.startswith("圖片 "):
-            if is_usage_exceeded("圖片", limit=15):
-                await message.reply("⚠️ 指揮官，今日圖片功能已達 15 次上限，請明日再試。")
-                return  # 直接收子離場
-            query = cmd[2:].strip()
-            thinking = await message.reply("生成中…")
-            try:
-                multimodal = [{"type": "input_text", "text": query+"我的語言是繁體"}]
-                for attachment in message.attachments[:10]:
-                    if attachment.content_type and attachment.content_type.startswith("image/"):
-                        image_url = attachment.proxy_url  # 使用 proxy_url 替代 attachment.url
-                        multimodal.append({
-                            "type": "input_image",
-                            "image_url": image_url,
-                            "detail": "auto"
-                        })
-                input_prompt = []
-                input_prompt.append({
-                    "role": "user",
-                    "content": multimodal
-                })
-                count = record_usage("圖片")  # 這裡同時也會累加一次使用次數
-                model_used = OPENAI_IMAGE_MODEL
-                response = client_ai.responses.create(
-                    model=model_used,  # 使用動態決定的模型
-                    tools=[
-                        {
-                        "type": "web_search_preview",
-                        "user_location": {
-                            "type": "approximate",
-                            "country": "TW",
-                            "timezone": "Asia/Taipei"
-                        },
-                        },
-                        {"type": "image_generation",
-                         "quality": "high",
-                        }
-                    ],
-                    tool_choice={"type": "image_generation"},
-                    input=input_prompt,
-                )
-                replytext = response.output_text
-                await send_chunks(message, replytext)
-                replyimages = [
-                    blk["result"] if isinstance(blk, dict) else blk.result
-                    for blk in response.output
-                    if (blk["type"] if isinstance(blk, dict) else blk.type) == "image_generation_call"
-                ]
-                for idx, b64 in enumerate(replyimages):
-                    # 1. 先解碼
-                    buf = io.BytesIO(base64.b64decode(b64))
-                    buf.seek(0)
-                    # 2. 回傳到 Discord
-                    await message.reply(file=discord.File(buf, f"ai_image_{idx+1}.png"))
-
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
-                total_tokens = response.usage.total_tokens
-                await message.reply(f"📊 今天所有人總共使用「圖片」功能 {count} 次，本次使用的模型：{model_used}+gpt-image-1"
-                                    f"\n📊 token 使用量：\n"
-                                    f"- 輸入 tokens: {input_tokens}\n"
-                                    f"- 回應 tokens: {output_tokens}\n"
-                                    f"- 總 token: {total_tokens}"
-                                    )
-            except Exception as e:
-                print(f"[IMG_ERR] user={message.author.id} guild={message.guild.id if message.guild else 'dm'} {type(e).__name__}: {e}")
-                await message.reply("❌ 圖片功能發生錯誤（錯誤代碼：IMG-001），請稍後再試。")
-            finally:
-                with suppress(discord.HTTPException, discord.Forbidden, discord.NotFound):
-                    await thinking.delete()
-        elif cmd.startswith("重置記憶"):
-            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-            await message.reply("⚠️ 你確定要重置記憶嗎？建議利用【顯示記憶】指令備份目前記憶。若要重置，請回覆「確定重置」；若要取消，請回覆「取消重置」。")
-            pending_reset_confirmations[user_id] = True
-
-        elif cmd.startswith("確定重置"):
-            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-            if pending_reset_confirmations.get(user_id):
-                pending_reset_confirmations.pop(user_id)
-                state = {
-                    "summary": "",
-                    "token_accum": 0,
-                    "last_response_id": None,
-                    "thread_count": 0
-                }
-                save_user_memory(user_id, state)
-                await message.reply("✅ 記憶已重置")
-            else:
-                await message.reply("⚠️ 沒有待確認的重置請求。")
-
-        elif cmd.startswith("取消重置"):
-            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-            if pending_reset_confirmations.get(user_id):
-                pending_reset_confirmations.pop(user_id)
-                await message.reply("已取消記憶重置。")
-            else:
-                await message.reply("⚠️ 沒有待確認的重置請求。")
-        elif cmd.startswith("顯示記憶"):
-            user_id = f"{message.guild.id}-{message.author.id}" if message.guild else f"dm-{message.author.id}"
-            state = load_user_memory(user_id)
-            summary = state.get("summary", "")
-            if summary:
-                await message.reply(f"📖 目前長期記憶摘要：\n{summary}")
-            else:
-                await message.reply("目前尚無長期記憶摘要。")
         elif cmd.startswith("指令選單"):
-            embed = discord.Embed(title="📜 Discord Bot 指令選單", color=discord.Color.blue())
-            embed.add_field(
-                name="❓ 問",
-                value=f"`!問 <內容>`\n支援圖片附件問答；主模型 `{OPENAI_PRIMARY_MODEL}`，每 10 輪以 `{OPENAI_SUMMARY_MODEL}` 做記憶摘要，並啟用網路查證。",
-                inline=False
+            await message.reply(
+                f"目前僅支援：`!問 <內容>`\n"
+                f"- 模型：`{OPENAI_PRIMARY_MODEL}`\n"
+                f"- 每 10 輪摘要模型：`{OPENAI_SUMMARY_MODEL}`\n"
+                "- 僅文字問答（OpenAI）"
             )
-            embed.add_field(
-                name="🧠 問2（Grok）",
-                value="`!問2 <內容>`\n支援圖片附件問答；使用 xAI `grok-4-1-fast-reasoning`，並啟用 function calling / web_search / x_search（需設定 `XAI_API_KEY`）。",
-                inline=False
-            )
-            embed.add_field(
-                name="🧹 整理",
-                value=f"`!整理 <來源頻道/討論串ID> <摘要送出頻道ID>`\n使用 `{OPENAI_PRIMARY_MODEL}` 整理近 1000 則訊息並發送至指定頻道。",
-                inline=False
-            )
-            embed.add_field(
-                name="🎨 圖片",
-                value=f"`!圖片 <描述>`\n使用 `{OPENAI_IMAGE_MODEL} + gpt-image-1` 生成圖片（含網路查證）。",
-                inline=False
-            )
-            embed.add_field(
-                name="🧠 顯示記憶",
-                value="`!顯示記憶`\n顯示目前的長期記憶摘要。",
-                inline=False
-            )
-            embed.add_field(
-                name="♻️ 重置記憶",
-                value="`!重置記憶` → 開始記憶清除流程\n`!確定重置` / `!取消重置` → 確認或取消重置",
-                inline=False
-            )
-            embed.add_field(
-                name="🧪 自動推播測試",
-                value="`!自動推播測試`\n立刻測試獨立的「自動推播」功能，立即發送一次每日國際新聞。",
-                inline=False
-            )
-            embed.add_field(
-                name="📖 指令選單",
-                value="`!指令選單`\n顯示本說明選單。",
-                inline=False
-            )
-            await message.reply(embed=embed)
 
 
                 

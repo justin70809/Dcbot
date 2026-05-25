@@ -18,6 +18,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.5")
 OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-mini")
+GROUP_TRIGGER_KEYWORD = os.getenv("GROUP_TRIGGER_KEYWORD", "!問")
+FEATURE_LIST_COMMANDS = {"!功能", "!功能列表", "!help"}
 
 
 def require_env(name: str, value: str | None):
@@ -200,20 +202,32 @@ def webhook():
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     incoming = (event.message.text or "").strip()
+    source_type = getattr(event.source, "type", "")
+    is_group_chat = source_type in {"group", "room"}
+    trigger_prefix = f"{GROUP_TRIGGER_KEYWORD} "
 
     user_id = f"line-{event.source.user_id or 'unknown'}"
 
     if incoming == "!清空記憶":
         clear_user_memory(user_id)
         reply_texts = ["已為你完全清空記憶（摘要、對話串接、計數）。"]
-    elif not incoming.startswith("!問 "):
+    elif incoming in FEATURE_LIST_COMMANDS:
         reply_texts = [
-            "請使用：!問 <你的問題>",
-            "例如：!問 幫我整理今天 AI 重點新聞",
+            "可用功能：",
+            f"1) {GROUP_TRIGGER_KEYWORD} <問題>：向 AI 詢問問題（群組需加關鍵字）",
+            "2) !清空記憶：清除你的對話記憶",
+            "3) !功能 或 !功能列表：查看這份功能清單",
+        ]
+    elif is_group_chat and not incoming.startswith(trigger_prefix):
+        return
+    elif not incoming.startswith(trigger_prefix):
+        reply_texts = [
+            f"請使用：{GROUP_TRIGGER_KEYWORD} <你的問題>",
+            f"例如：{GROUP_TRIGGER_KEYWORD} 幫我整理今天 AI 重點新聞",
             "若要清空記憶：!清空記憶",
         ]
     else:
-        prompt = incoming[3:].strip()
+        prompt = incoming[len(trigger_prefix):].strip()
         state = load_user_memory(user_id)
         state["thread_count"] = (state.get("thread_count") or 0) + 1
 

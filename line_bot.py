@@ -16,8 +16,8 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.4")
-OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-nano")
+OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.5")
+OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.5-mini")
 
 
 def require_env(name: str, value: str | None):
@@ -37,10 +37,12 @@ app = Flask(__name__)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+OPENAI_ENABLE_WEB_SEARCH = os.getenv("OPENAI_ENABLE_WEB_SEARCH", "true").lower() in {"1", "true", "yes", "on"}
 
 ASK_INSTRUCTIONS = """
 使用繁體中文。
 - 一律稱呼使用者為「指揮官」。
+- 回答要精簡，優先用 3-6 行完成重點。
 - 先給直接答案，再補充理由與步驟。
 - 若資訊不確定要明確說不確定，不能編造。
 """.strip()
@@ -215,13 +217,17 @@ def handle_text_message(event):
             state["thread_count"] = 0
 
         ask_text = build_ask_user_text(prompt, datetime.now(TAIPEI_TZ), state.get("summary", ""), is_first_turn)
-        response = client_ai.responses.create(
-            model=OPENAI_PRIMARY_MODEL,
-            instructions=ASK_INSTRUCTIONS,
-            input=[{"role": "user", "content": [{"type": "input_text", "text": ask_text}]}],
-            previous_response_id=state.get("last_response_id"),
-            store=True,
-        )
+        request_kwargs = {
+            "model": OPENAI_PRIMARY_MODEL,
+            "instructions": ASK_INSTRUCTIONS,
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": ask_text}]}],
+            "previous_response_id": state.get("last_response_id"),
+            "store": True,
+        }
+        if OPENAI_ENABLE_WEB_SEARCH:
+            request_kwargs["tools"] = [{"type": "web_search_preview"}]
+
+        response = client_ai.responses.create(**request_kwargs)
         state["last_response_id"] = response.id
         save_user_memory(user_id, state)
         reply_texts = split_text_for_line(response.output_text)

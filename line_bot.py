@@ -44,6 +44,8 @@ ASK_INSTRUCTIONS = """
 - 回答要精簡，優先用 3-6 行完成重點。
 - 先給直接答案，再補充理由與步驟。
 - 若資訊不確定要明確說不確定，不能編造。
+- 涉及「最新/今天/即時」資訊時，優先使用網路搜尋工具查證後再回答。
+- 不要回覆你「無法連網」；若搜尋工具失敗，請明確說是工具暫時失敗並提供可行替代方案。
 """.strip()
 
 
@@ -143,6 +145,17 @@ def save_user_memory(user_id, state):
         get_db_pool().putconn(conn)
 
 
+
+
+def clear_user_memory(user_id):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM memory WHERE user_id = %s", (user_id,))
+        conn.commit()
+    finally:
+        get_db_pool().putconn(conn)
+
 def split_text_for_line(text, chunk_size=4900):
     if not text:
         return ["（無內容）"]
@@ -188,14 +201,19 @@ def webhook():
 def handle_text_message(event):
     incoming = (event.message.text or "").strip()
 
-    if not incoming.startswith("!問 "):
+    user_id = f"line-{event.source.user_id or 'unknown'}"
+
+    if incoming == "!清空記憶":
+        clear_user_memory(user_id)
+        reply_texts = ["已為你完全清空記憶（摘要、對話串接、計數）。"]
+    elif not incoming.startswith("!問 "):
         reply_texts = [
             "請使用：!問 <你的問題>",
             "例如：!問 幫我整理今天 AI 重點新聞",
+            "若要清空記憶：!清空記憶",
         ]
     else:
         prompt = incoming[3:].strip()
-        user_id = f"line-{event.source.user_id or 'unknown'}"
         state = load_user_memory(user_id)
         state["thread_count"] = (state.get("thread_count") or 0) + 1
 
@@ -224,7 +242,8 @@ def handle_text_message(event):
             "store": True,
         }
         if OPENAI_ENABLE_WEB_SEARCH:
-            request_kwargs["tools"] = [{"type": "web_search_preview"}]
+            request_kwargs["tools"] = [{"type": "web_search", "external_web_access": True}]
+            request_kwargs["tool_choice"] = "auto"
 
         response = client_ai.responses.create(**request_kwargs)
         state["last_response_id"] = response.id

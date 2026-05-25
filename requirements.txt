@@ -1,3 +1,5 @@
 discord.py
 openai
 psycopg2-binary
+flask
+line-bot-sdk

@@ -17,7 +17,7 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 OPENAI_PRIMARY_MODEL = os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5.5")
-OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.5-mini")
+OPENAI_SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.4-mini")
 
 
 def require_env(name: str, value: str | None):
@@ -41,7 +41,6 @@ OPENAI_ENABLE_WEB_SEARCH = os.getenv("OPENAI_ENABLE_WEB_SEARCH", "true").lower()
 
 ASK_INSTRUCTIONS = """
 使用繁體中文。
-- 一律稱呼使用者為「指揮官」。
 - 回答要精簡，優先用 3-6 行完成重點。
 - 先給直接答案，再補充理由與步驟。
 - 若資訊不確定要明確說不確定，不能編造。

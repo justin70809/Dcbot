@@ -8,7 +8,7 @@
     "start": "node personal_line_bot.js"
   },
   "dependencies": {
-    "@evex/linejs": "^3.1.0",
+    "@evex/linejs": "npm:@jsr/evex__linejs@^2.8.2",
     "openai": "^6.8.1",
     "pg": "^8.16.3"
   }

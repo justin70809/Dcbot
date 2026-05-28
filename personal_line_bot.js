@@ -9,8 +9,14 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const OPENAI_PRIMARY_MODEL = process.env.OPENAI_PRIMARY_MODEL || 'gpt-5.5';
 const OPENAI_SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || 'gpt-5.4-mini';
 const TRIGGER = process.env.LINEJS_TRIGGER || '!問';
+const REPLY_DELAY_MIN_MS = Number.parseInt(process.env.LINEJS_REPLY_DELAY_MIN_MS || '1200', 10);
+const REPLY_DELAY_MAX_MS = Number.parseInt(process.env.LINEJS_REPLY_DELAY_MAX_MS || '4500', 10);
+const MAX_IMAGES_PER_REQUEST = Number.parseInt(process.env.LINEJS_MAX_IMAGES_PER_REQUEST || '10', 10);
+const IMAGE_BUFFER_TTL_MS = Number.parseInt(process.env.LINEJS_IMAGE_BUFFER_TTL_MS || '600000', 10);
+const MAX_IMAGE_BYTES = Number.parseInt(process.env.LINEJS_MAX_IMAGE_BYTES || '8388608', 10);
 const OPENAI_ENABLE_WEB_SEARCH = ['1', 'true', 'yes', 'on'].includes((process.env.OPENAI_ENABLE_WEB_SEARCH || 'true').toLowerCase());
 const FEATURE_LIST_COMMANDS = new Set(['!功能', '!功能列表', '!help']);
+const roomImageBuffers = new Map();
 
 for (const [key, value] of Object.entries({ OPENAI_API_KEY, LINE_EMAIL, LINE_PASSWORD, DATABASE_URL })) {
   if (!value) {
@@ -119,8 +125,98 @@ function isGroupChat(msg) {
   return ['GROUP', 'ROOM'].includes(String(toType).toUpperCase());
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomInt(min, max) {
+  const lower = Math.ceil(Math.min(min, max));
+  const upper = Math.floor(Math.max(min, max));
+  return Math.floor(Math.random() * (upper - lower + 1)) + lower;
+}
+
+async function randomReplyDelay() {
+  const delay = randomInt(REPLY_DELAY_MIN_MS, REPLY_DELAY_MAX_MS);
+  await sleep(delay);
+}
+
+async function safeReadMessage(msg) {
+  try {
+    if (typeof msg?.read === 'function') {
+      await msg.read();
+    }
+  } catch (err) {
+    console.warn('訊息已讀失敗：', err);
+  }
+}
+
+function isAskCommand(text) {
+  return text.startsWith(`${TRIGGER} `);
+}
+
+function stripTrigger(text) {
+  return isAskCommand(text) ? text.slice(TRIGGER.length).trim() : text;
+}
+
+function getChatRoomId(msg) {
+  return String(
+    msg?.to?.mid
+    || msg?.to?.id
+    || msg?.chatMid
+    || msg?.chatId
+    || msg?.squareChatMid
+    || msg?.squareChatId
+    || msg?.to?.squareChatMid
+    || 'unknown-room',
+  );
+}
+
+function isImageMessage(msg) {
+  const rawType = String(msg?.contentType || msg?.type || msg?.messageType || '').toUpperCase();
+  return rawType.includes('IMAGE') || rawType === '1' || rawType === 'PHOTO';
+}
+
+function cleanupExpiredImages(roomId) {
+  const bucket = roomImageBuffers.get(roomId);
+  if (!bucket || bucket.length === 0) return;
+  const now = Date.now();
+  const valid = bucket.filter((item) => now - item.createdAt <= IMAGE_BUFFER_TTL_MS);
+  if (valid.length > 0) {
+    roomImageBuffers.set(roomId, valid);
+  } else {
+    roomImageBuffers.delete(roomId);
+  }
+}
+
+function popBufferedImages(roomId) {
+  cleanupExpiredImages(roomId);
+  const bucket = roomImageBuffers.get(roomId) || [];
+  roomImageBuffers.delete(roomId);
+  return bucket.slice(-MAX_IMAGES_PER_REQUEST).map((item) => item.dataUrl);
+}
+
+async function bufferIncomingImage(msg, roomId) {
+  if (typeof msg?.getData !== 'function') return;
+  const imageData = await msg.getData();
+  if (!imageData) return;
+  const byteLength = Buffer.isBuffer(imageData)
+    ? imageData.byteLength
+    : Buffer.byteLength(imageData);
+  if (byteLength > MAX_IMAGE_BYTES) {
+    console.warn(`圖片略過：超過大小上限 ${byteLength} bytes > ${MAX_IMAGE_BYTES} bytes`);
+    return;
+  }
+  const buffer = Buffer.isBuffer(imageData) ? imageData : Buffer.from(imageData);
+  const dataUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+  cleanupExpiredImages(roomId);
+  const existing = roomImageBuffers.get(roomId) || [];
+  existing.push({ dataUrl, createdAt: Date.now() });
+  roomImageBuffers.set(roomId, existing.slice(-MAX_IMAGES_PER_REQUEST));
+}
+
 async function replyLineMessage(msg, texts) {
   for (const text of texts) {
+    await randomReplyDelay();
     await msg.reply(String(text));
   }
 }
@@ -133,8 +229,8 @@ function shouldReply(text, groupChat) {
   return true;
 }
 
-async function askOpenAI(userText, userId) {
-  const prompt = userText.startsWith(`${TRIGGER} `) ? userText.slice(TRIGGER.length).trim() : userText;
+async function askOpenAI(userText, userId, imageDataUrls = []) {
+  const prompt = stripTrigger(userText);
   const state = await loadUserMemory(userId);
   state.thread_count = (state.thread_count || 0) + 1;
 
@@ -155,7 +251,13 @@ async function askOpenAI(userText, userId) {
   const request = {
     model: OPENAI_PRIMARY_MODEL,
     instructions: ASK_INSTRUCTIONS,
-    input: [{ role: 'user', content: [{ type: 'input_text', text: buildAskUserText(prompt, state.summary, isFirstTurn) }] }],
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: buildAskUserText(prompt, state.summary, isFirstTurn) },
+        ...imageDataUrls.map((imageUrl) => ({ type: 'input_image', image_url: imageUrl })),
+      ],
+    }],
     previous_response_id: state.last_response_id,
     store: true,
   };
@@ -190,23 +292,33 @@ async function main() {
 
   console.log('LINEJS 已登入，開始監聽訊息。');
 
-  line.on('message', async (msg) => {
-    if (msg.isMyMessage) return;
-
+  const handleLineMessage = async (msg) => {
     try {
+      const myMessage = typeof msg.isMyMessage === 'function' ? await msg.isMyMessage() : msg.isMyMessage;
+      if (myMessage) return;
+
+      await safeReadMessage(msg);
+      const roomId = getChatRoomId(msg);
+      if (isImageMessage(msg)) {
+        await bufferIncomingImage(msg, roomId);
+        return;
+      }
       const text = (msg?.text || '').trim();
-      const groupChat = isGroupChat(msg);
-      if (!shouldReply(text, groupChat)) return;
+      const groupChat = msg.isSquare || isGroupChat(msg);
+      if (!text) return;
+      if (groupChat && text !== '!清空記憶' && text !== '!功能' && !isAskCommand(text)) return;
+      if (!groupChat && !shouldReply(text, groupChat)) return;
 
       const userId = `line-${msg?.from?.mid || msg?.from?.id || msg?.sender || 'unknown'}`;
 
       if (text === '!清空記憶') {
         await clearUserMemory(userId);
+        roomImageBuffers.delete(roomId);
         await replyLineMessage(msg, ['已為你完全清空記憶（摘要、對話串接、計數）。']);
         return;
       }
 
-      if (FEATURE_LIST_COMMANDS.has(text)) {
+      if (!groupChat && FEATURE_LIST_COMMANDS.has(text)) {
         await replyLineMessage(msg, [
           '可用功能：',
           `1) ${TRIGGER} <問題>：向 AI 詢問問題（群組需加關鍵字）`,
@@ -216,7 +328,7 @@ async function main() {
         return;
       }
 
-      if (!groupChat && !text.startsWith(`${TRIGGER} `)) {
+      if (!groupChat && !isAskCommand(text)) {
         await replyLineMessage(msg, [
           `請使用：${TRIGGER} <你的問題>`,
           `例如：${TRIGGER} 幫我整理今天 AI 重點新聞`,
@@ -225,17 +337,22 @@ async function main() {
         return;
       }
 
-      const answers = await askOpenAI(text, userId);
+      const imageDataUrls = isAskCommand(text) ? popBufferedImages(roomId) : [];
+      const answers = await askOpenAI(text, userId, imageDataUrls);
       await replyLineMessage(msg, answers.slice(0, 5));
     } catch (err) {
       console.error('訊息處理失敗：', err);
       try {
+        await randomReplyDelay();
         await replyLineMessage(msg, ['抱歉，剛剛處理失敗，請稍後再試。']);
       } catch (_) {}
     }
-  });
+  };
 
-  line.listen({ talk: true, square: false });
+  line.on('message', handleLineMessage);
+  line.on('square:message', handleLineMessage);
+
+  line.listen({ talk: true, square: true });
 }
 
 main().catch((err) => {

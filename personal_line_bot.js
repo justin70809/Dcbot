@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { Pool } from 'pg';
-import { Client } from '@evex/linejs';
+import { loginWithPassword } from '@evex/linejs';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const LINE_EMAIL = process.env.LINE_EMAIL;
@@ -29,13 +29,6 @@ const ASK_INSTRUCTIONS = [
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 const db = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
-const line = new Client({
-  auth: {
-    email: LINE_EMAIL,
-    password: LINE_PASSWORD,
-  },
-});
-
 async function initDb() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS memory (
@@ -122,8 +115,14 @@ function buildAskUserText(prompt, summary, isFirstTurn) {
 }
 
 function isGroupChat(msg) {
-  const sourceType = msg?.chatType || msg?.toType || msg?.roomType || msg?.sourceType || '';
-  return ['group', 'room'].includes(String(sourceType).toLowerCase());
+  const toType = msg?.to?.type || '';
+  return ['GROUP', 'ROOM'].includes(String(toType).toUpperCase());
+}
+
+async function replyLineMessage(msg, texts) {
+  for (const text of texts) {
+    await msg.reply(String(text));
+  }
 }
 
 function shouldReply(text, groupChat) {
@@ -175,10 +174,25 @@ async function askOpenAI(userText, userId) {
 
 async function main() {
   await initDb();
-  await line.login();
+
+  const line = await loginWithPassword(
+    {
+      email: LINE_EMAIL,
+      password: LINE_PASSWORD,
+      onPincodeRequest(pin) {
+        console.log('LINE 登入 PIN:', pin);
+      },
+    },
+    {
+      device: 'DESKTOPWIN',
+    },
+  );
+
   console.log('LINEJS 已登入，開始監聽訊息。');
 
   line.on('message', async (msg) => {
+    if (msg.isMyMessage) return;
+
     try {
       const text = (msg?.text || '').trim();
       const groupChat = isGroupChat(msg);
@@ -188,12 +202,12 @@ async function main() {
 
       if (text === '!清空記憶') {
         await clearUserMemory(userId);
-        await line.replyMessage(msg, ['已為你完全清空記憶（摘要、對話串接、計數）。']);
+        await replyLineMessage(msg, ['已為你完全清空記憶（摘要、對話串接、計數）。']);
         return;
       }
 
       if (FEATURE_LIST_COMMANDS.has(text)) {
-        await line.replyMessage(msg, [
+        await replyLineMessage(msg, [
           '可用功能：',
           `1) ${TRIGGER} <問題>：向 AI 詢問問題（群組需加關鍵字）`,
           '2) !清空記憶：清除你的對話記憶',
@@ -203,7 +217,7 @@ async function main() {
       }
 
       if (!groupChat && !text.startsWith(`${TRIGGER} `)) {
-        await line.replyMessage(msg, [
+        await replyLineMessage(msg, [
           `請使用：${TRIGGER} <你的問題>`,
           `例如：${TRIGGER} 幫我整理今天 AI 重點新聞`,
           '若要清空記憶：!清空記憶',
@@ -212,14 +226,16 @@ async function main() {
       }
 
       const answers = await askOpenAI(text, userId);
-      await line.replyMessage(msg, answers.slice(0, 5));
+      await replyLineMessage(msg, answers.slice(0, 5));
     } catch (err) {
       console.error('訊息處理失敗：', err);
       try {
-        await line.replyMessage(msg, ['抱歉，剛剛處理失敗，請稍後再試。']);
+        await replyLineMessage(msg, ['抱歉，剛剛處理失敗，請稍後再試。']);
       } catch (_) {}
     }
   });
+
+  line.listen({ talk: true, square: false });
 }
 
 main().catch((err) => {

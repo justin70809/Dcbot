@@ -2,14 +2,14 @@
   "name": "dcbot-linejs",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "description": "LINEJS personal account bot with OpenAI",
   "main": "personal_line_bot.js",
   "scripts": {
     "start": "node personal_line_bot.js"
   },
   "dependencies": {
-    "@evex/linejs": "npm:@jsr/evex__linejs@^3.1.0",
-    "openai": "^6.8.1"
+    "@evex/linejs": "npm:@jsr/evex__linejs@^2.8.2",
+    "openai": "^6.8.1",
+    "pg": "^8.16.3"
   }
 }

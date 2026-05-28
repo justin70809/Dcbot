@@ -1,6 +1,6 @@
-const OpenAI = require('openai');
-const { Pool } = require('pg');
-const { Client } = require('@evex/linejs');
+import OpenAI from 'openai';
+import { Pool } from 'pg';
+import { Client } from '@evex/linejs';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const LINE_EMAIL = process.env.LINE_EMAIL;

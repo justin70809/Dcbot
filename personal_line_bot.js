@@ -151,29 +151,34 @@ async function safeReadMessage(msg) {
 }
 
 function isAskCommand(text) {
-  return text.startsWith(`${TRIGGER} `);
+  return text === TRIGGER || text.startsWith(`${TRIGGER} `);
 }
 
 function stripTrigger(text) {
   return isAskCommand(text) ? text.slice(TRIGGER.length).trim() : text;
 }
 
+function getMessageContentType(msg) {
+  const talkContentType = msg?.raw?.contentType;
+  if (talkContentType !== undefined && talkContentType !== null) return talkContentType;
+  const squareContentType = msg?.raw?.message?.contentType;
+  if (squareContentType !== undefined && squareContentType !== null) return squareContentType;
+  return msg?.contentType || msg?.type || msg?.messageType || null;
+}
+
 function getChatRoomId(msg) {
   return String(
-    msg?.to?.mid
-    || msg?.to?.id
-    || msg?.chatMid
-    || msg?.chatId
-    || msg?.squareChatMid
-    || msg?.squareChatId
-    || msg?.to?.squareChatMid
+    msg?.raw?.to || msg?.raw?.chatMid || msg?.raw?.message?.to || msg?.to?.mid || msg?.to?.id
+    || msg?.chatMid || msg?.chatId || msg?.squareChatMid || msg?.squareChatId || msg?.to?.squareChatMid
     || 'unknown-room',
   );
 }
 
 function isImageMessage(msg) {
-  const rawType = String(msg?.contentType || msg?.type || msg?.messageType || '').toUpperCase();
-  return rawType.includes('IMAGE') || rawType === '1' || rawType === 'PHOTO';
+  const contentType = getMessageContentType(msg);
+  if (typeof contentType === 'number') return contentType === 1;
+  const normalized = String(contentType || '').trim().toUpperCase();
+  return normalized === '1' || normalized === 'IMAGE';
 }
 
 function cleanupExpiredImages(roomId) {
@@ -195,23 +200,46 @@ function popBufferedImages(roomId) {
   return bucket.slice(-MAX_IMAGES_PER_REQUEST).map((item) => item.dataUrl);
 }
 
+function detectMimeType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return 'application/octet-stream';
+  if (buffer.length >= 12 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+    && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) return 'image/webp';
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'image/jpeg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'image/png';
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) return 'image/gif';
+  return 'application/octet-stream';
+}
+
+async function blobToBuffer(data) {
+  if (!data) return null;
+  if (Buffer.isBuffer(data)) return data;
+  if (typeof data?.arrayBuffer === 'function') {
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return Buffer.from(data);
+}
+
 async function bufferIncomingImage(msg, roomId) {
   if (typeof msg?.getData !== 'function') return;
-  const imageData = await msg.getData();
-  if (!imageData) return;
-  const byteLength = Buffer.isBuffer(imageData)
-    ? imageData.byteLength
-    : Buffer.byteLength(imageData);
+  const imageBlob = await msg.getData();
+  const buffer = await blobToBuffer(imageBlob);
+  if (!buffer) return;
+  const byteLength = buffer.byteLength;
   if (byteLength > MAX_IMAGE_BYTES) {
     console.warn(`圖片略過：超過大小上限 ${byteLength} bytes > ${MAX_IMAGE_BYTES} bytes`);
     return;
   }
-  const buffer = Buffer.isBuffer(imageData) ? imageData : Buffer.from(imageData);
-  const dataUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+  const mimeType = detectMimeType(buffer);
+  const dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
   cleanupExpiredImages(roomId);
   const existing = roomImageBuffers.get(roomId) || [];
   existing.push({ dataUrl, createdAt: Date.now() });
-  roomImageBuffers.set(roomId, existing.slice(-MAX_IMAGES_PER_REQUEST));
+  const next = existing.slice(-MAX_IMAGES_PER_REQUEST);
+  roomImageBuffers.set(roomId, next);
+  console.log(`[image-buffered] roomId=${roomId} count=${next.length} bytes=${byteLength} mime=${mimeType}`);
 }
 
 async function replyLineMessage(msg, texts) {
@@ -338,6 +366,7 @@ async function main() {
       }
 
       const imageDataUrls = isAskCommand(text) ? popBufferedImages(roomId) : [];
+      console.log(`[ask-openai] roomId=${roomId} images=${imageDataUrls.length} text=${text}`);
       const answers = await askOpenAI(text, userId, imageDataUrls);
       await replyLineMessage(msg, answers.slice(0, 5));
     } catch (err) {
